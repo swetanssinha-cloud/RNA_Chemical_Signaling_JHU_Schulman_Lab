@@ -1,0 +1,30 @@
+{
+  "model_file": "/Users/rebeccaschulman/Library/CloudStorage/OneDrive-SharedLibraries-JohnsHopkins/Schulman Lab - Lab Papers and Drafts/Published/2025/Genelet Receiver Paper/Reviewed Data Archive/SI_Chap_2/COMSOL-Model-SI-Chap-2-1.mph",
+  "studies": [
+    "Study 1"
+  ],
+  "datasets": [
+    "Study 1//Solution 1",
+    "Study 1//Parametric Solutions 1"
+  ],
+  "parameters": {
+    "kd_H": "0.0003[1/s]",
+    "kd_A": "0.0003[1/s]",
+    "kdds": "kd_H",
+    "kdss": "kd_A",
+    "kp_sam": "0.02[1/s]",
+    "Dss": "42[um^2/s]",
+    "Dds": "35[um^2/s]",
+    "Dsol": "150[um^2/s]",
+    "kp": "0.2[1/s]",
+    "Ld": "75[um]",
+    "Lw": "500[um]",
+    "dist": "100[um]",
+    "G1_0": "100[nM]",
+    "Th1_0": "10[uM]",
+    "G2_0": "100[nM]",
+    "k4bp": "1E4[1/M/s]",
+    "k5bp": "1E5[1/M/s]",
+    "k6bp": "1E6[1/M/s]"
+  }
+}

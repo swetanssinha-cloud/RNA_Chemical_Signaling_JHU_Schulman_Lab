@@ -1,0 +1,24 @@
+{
+  "test_case": {
+    "distance_um": 150,
+    "threshold_uM": 5.0,
+    "total_hours": 0.001
+  },
+  "levels": [
+    {
+      "mesh_level": 6,
+      "receiver_I2_nM": 99.99999769331183,
+      "receiver_total_RNA_nM": 0.001485234713985564
+    },
+    {
+      "mesh_level": 7,
+      "receiver_I2_nM": 99.99999769331183,
+      "receiver_total_RNA_nM": 0.001485234713985564
+    },
+    {
+      "mesh_level": 8,
+      "receiver_I2_nM": 99.99999769331183,
+      "receiver_total_RNA_nM": 0.001485234713985564
+    }
+  ]
+}

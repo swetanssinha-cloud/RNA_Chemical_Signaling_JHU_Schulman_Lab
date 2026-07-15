@@ -1,0 +1,28 @@
+{
+  "preset": "comsol-2-1",
+  "case": {
+    "total_hours": 0.001,
+    "description": "Short run using the real Section 2.1 geometry and parameter preset extracted from the downloaded COMSOL model."
+  },
+  "notes": [
+    "The Python models use the same 2.1 geometry and main kinetic parameters, but they are still simplified reconstructions rather than the original paper COMSOL file.",
+    "The COMSOL entry below is from the fresh Python-built COMSOL model, not from directly solving the original paper mph file.",
+    "Receiver I2 agrees closely across all runs at this short time; receiver total RNA is more sensitive to discretization and implementation details."
+  ],
+  "numpy_dx50_dt0.1": {
+    "receiver_I2_nM": 99.9999963536375,
+    "receiver_total_RNA_nM": 0.004077068403746043
+  },
+  "fipy_dx50_dt0.2": {
+    "receiver_I2_nM": 100.0,
+    "receiver_total_RNA_nM": 0.006129620524475739
+  },
+  "fipy_dx25_dt0.1": {
+    "receiver_I2_nM": 100.0,
+    "receiver_total_RNA_nM": 0.0026597466402551975
+  },
+  "comsol_builder_mesh8_dt1": {
+    "receiver_I2_nM": 99.99999,
+    "receiver_total_RNA_nM": 0.010482
+  }
+}

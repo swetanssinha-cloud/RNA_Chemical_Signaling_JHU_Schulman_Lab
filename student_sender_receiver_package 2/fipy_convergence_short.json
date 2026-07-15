@@ -1,0 +1,35 @@
+{
+  "test_case": {
+    "distance_um": 150,
+    "threshold_uM": 5.0,
+    "total_hours": 0.001
+  },
+  "levels": [
+    {
+      "dx_um": 25.0,
+      "dt_s": 0.1,
+      "receiver_I2_nM": 100.0,
+      "receiver_totalRNA_nM": 0.00392225229690071
+    },
+    {
+      "dx_um": 12.5,
+      "dt_s": 0.05,
+      "receiver_I2_nM": 100.0,
+      "receiver_totalRNA_nM": 0.0018717024492465122
+    },
+    {
+      "dx_um": 6.25,
+      "dt_s": 0.025,
+      "receiver_I2_nM": 100.0,
+      "receiver_totalRNA_nM": 0.0013623939774204468
+    }
+  ],
+  "richardson_receiver_I2_nM": {
+    "order": null,
+    "extrapolated": null
+  },
+  "richardson_receiver_totalRNA_nM": {
+    "order": 2.009399194849046,
+    "extrapolated": 0.0011940912549903374
+  }
+}

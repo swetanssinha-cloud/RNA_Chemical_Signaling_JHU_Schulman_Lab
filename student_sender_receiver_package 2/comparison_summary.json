@@ -1,0 +1,14 @@
+{
+  "test_case": {
+    "center_distance_um": 150,
+    "total_hours": 1.0,
+    "dx_um": 25.0,
+    "threshold_uM": 5.0
+  },
+  "fipy_final_I2_nM": 1.2104153381197207,
+  "numpy_final_I2_nM": 1.2038472526792487,
+  "fipy_final_totalRNA_nM": 5338.018382128014,
+  "numpy_final_totalRNA_nM": 5340.939328914446,
+  "relative_error_I2_percent": 0.5426307180372409,
+  "relative_error_totalRNA_percent": 0.05471968392262497
+}
