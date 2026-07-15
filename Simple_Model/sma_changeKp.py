@@ -4,6 +4,10 @@ import matplotlib.pyplot as plt
 import time as simtime
 
 
+'''
+I have written two files that have the same stuff as this file: solve_well_mized.py is the solving part of this file & analyze_well_mixed.py is the analysis part of this file. I am seperating them because I do not want to wait whatever time it takes for the solving to finish every time i want a new plot
+'''
+
 def run_simulation(Phi_in_value, params):
     """
     Run well-mixed FiPy simulation for given Phi_in value.
@@ -127,6 +131,8 @@ results = {}
 tw50_values = []
 phi_in_values = []
 
+'''SOLVING'''
+
 for Phi_in_val in Phi_in_array:
     print(f"Running simulation for Phi_in = {Phi_in_val*1e9:.2f} nM/s...")
     time, S2, I2, tw50, S2_tot = run_simulation(Phi_in_val, params)
@@ -136,6 +142,8 @@ for Phi_in_val in Phi_in_array:
     phi_in_values.append(Phi_in_val * 1e9)
     tw50_values.append(tw50)
 
+
+'''PLOTTING'''
 # Create figure with three subplots
 fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 14))
 

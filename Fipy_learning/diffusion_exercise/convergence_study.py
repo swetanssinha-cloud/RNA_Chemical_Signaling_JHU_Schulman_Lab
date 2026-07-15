@@ -13,6 +13,7 @@ for dx in dx_values:
     
     # Calculate nx to keep domain size constant (Lx = 400)
     Lx = 400.0
+
     nx = int(Lx / dx)  # REMOVED the +1
     
     actual_Lx = nx * dx
