@@ -6,7 +6,12 @@ import time as simtime
 
 OUTPUT_DIR = "well_mixed_results"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-
+ 
+for f in os.listdir(OUTPUT_DIR):
+    if f.startswith("run_Phi_in_") and f.endswith(".csv"):
+        os.remove(os.path.join(OUTPUT_DIR, f))
+    if f == "summary.csv":
+        os.remove(os.path.join(OUTPUT_DIR, f))
 
 def run_simulation(Phi_in_value, params):
     """
@@ -38,11 +43,13 @@ def run_simulation(Phi_in_value, params):
              ImplicitSourceTerm(coeff=-k_d_ss, var=S2) +
              Phi_in_value)
 
-    eq_I2 = (TransientTerm(var=I2) ==
-             ImplicitSourceTerm(coeff=-k_slow * S2, var=I2))
+    eq_I2 = (TransientTerm(var=I2) == 
+            k_d_ds * C_I2 +
+            ImplicitSourceTerm(coeff=-k_slow * S2, var=I2))
 
-    eq_Th2 = (TransientTerm(var=Th2) ==
-              ImplicitSourceTerm(coeff=-k_fast * S2, var=Th2))
+    eq_Th2 = (TransientTerm(var=Th2) == 
+            k_d_ds * C_Th2 +
+            ImplicitSourceTerm(coeff=-k_fast * S2, var=Th2))
 
     eq_C_I2 = (TransientTerm(var=C_I2) ==
                k_slow * S2 * I2 +
@@ -128,7 +135,7 @@ if __name__ == "__main__":
         'tol': 1e-10
     }
 
-    Phi_in_array = np.array([0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 3, 4, 5]) * 1e-9
+    Phi_in_array = np.array([0.125,0.25, 0.5,1,2,4,5]) * 1e-9#([0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 3, 4, 5]) * 1e-9
 
     summary_rows = []
 

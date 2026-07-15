@@ -36,25 +36,28 @@ def run_simulation(Phi_in_value, params):
     C_Th2 = CellVariable(name="C_Th2", mesh=mesh, value=0.0, hasOld=True)
     
     # Define equations (well-mixed: no DiffusionTerm)
+    
     eq_S2 = (TransientTerm(var=S2) == 
-             ImplicitSourceTerm(coeff=-k_slow * I2, var=S2) +
-             ImplicitSourceTerm(coeff=-k_fast * Th2, var=S2) +
-             ImplicitSourceTerm(coeff=-k_d_ss, var=S2) +
-             Phi_in_value)
-    
+         Phi_in_value +
+         ImplicitSourceTerm(coeff=-k_slow * I2, var=S2) +
+         ImplicitSourceTerm(coeff=-k_fast * Th2, var=S2) +
+         ImplicitSourceTerm(coeff=-k_d_ss, var=S2))
+
     eq_I2 = (TransientTerm(var=I2) == 
-             ImplicitSourceTerm(coeff=-k_slow * S2, var=I2))
-    
+         k_d_ds * C_I2 +
+         ImplicitSourceTerm(coeff=-k_slow * S2, var=I2))
+
     eq_Th2 = (TransientTerm(var=Th2) == 
-              ImplicitSourceTerm(coeff=-k_fast * S2, var=Th2))
-    
+          k_d_ds * C_Th2 +
+          ImplicitSourceTerm(coeff=-k_fast * S2, var=Th2))
+
     eq_C_I2 = (TransientTerm(var=C_I2) == 
-               k_slow * S2 * I2 +
-               ImplicitSourceTerm(coeff=-k_d_ds, var=C_I2))
-    
+            k_slow * I2 * S2 +
+            ImplicitSourceTerm(coeff=-k_d_ds, var=C_I2))
+
     eq_C_Th2 = (TransientTerm(var=C_Th2) == 
-                k_fast * S2 * Th2 +
-                ImplicitSourceTerm(coeff=-k_d_ds, var=C_Th2))
+             k_fast * Th2 * S2 +
+             ImplicitSourceTerm(coeff=-k_d_ds, var=C_Th2))
     
     # Storage
     time_history = []
