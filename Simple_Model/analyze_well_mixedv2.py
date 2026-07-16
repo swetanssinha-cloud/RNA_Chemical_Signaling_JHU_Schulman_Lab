@@ -68,7 +68,7 @@ for _, row in summary.iterrows():
     print(
         f"Φ_in = {Phi_in_nMps:.2f} nM/s | "
         f"I2_0 = {I2_initial*1e9:.2f} nM | "
-        f"I2_inf = {I2_final*1e9:.2f} nM | "
+        f"I2_final = {I2_final*1e9:.2f} nM | "
         f"t_50% initial = {tw50_initial/3600:.3f} h | "
         f"t_50% off-range = {tw50_off/3600:.3f} h"
     )
@@ -127,6 +127,20 @@ plt.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.show()
 
+# '''plot of t50 * phi in vs phi in'''
+# plt.figure(figsize=(10, 6))
+# valid = ~np.isnan(summary["t50_initial_s"])
+
+# plt.plot(summary["Phi_in_nMps"], summary["Phi_in_nMps"] * summary["t50_initial_s"], "o-", linewidth = 2, markersize = 8)
+
+# plt.xlabel("Input Flux Φ_in (nM/s)")
+# plt.ylabel("Time to 50% of initial [I2] (hours) * Input Flux")
+# plt.title("Time for [I2] to drop to 50% of its initial value * input flux - to determine proprotionality")
+# plt.grid(True, alpha=0.3)
+# plt.tight_layout()
+# plt.show()
+
+
 '''
 Plot of I2
 '''
@@ -146,5 +160,51 @@ ax.set_ylabel("[I2] (nM)")
 ax.set_title("I2 vs time for all input fluxes")
 ax.grid(True, alpha=0.3)
 ax.legend(fontsize=8, ncol=2)
+plt.tight_layout()
+plt.show()
+
+'''
+Plot of final [I2] vs Phi_in
+'''
+plt.figure(figsize=(10, 6))
+
+plt.plot(
+    summary["Phi_in_nMps"],
+    summary["final_I2_nM"],
+    "o-",
+    linewidth=2,
+    markersize=8,
+    color="purple"
+)
+
+plt.xlabel("Input Flux Φ_in (nM/s)")
+plt.ylabel("Final [I2] (nM)")
+plt.title("Steady-state [I2] vs Input Flux")
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+
+'''
+Plot of simulation time to convergence vs Phi_in
+'''
+plt.figure(figsize=(10, 6))
+
+# Only plot simulations that converged
+converged_mask = summary["status"] == "converged"
+
+plt.plot(
+    summary.loc[converged_mask, "Phi_in_nMps"],
+    summary.loc[converged_mask, "sim_time_to_ss_h"],
+    "o-",
+    linewidth=2,
+    markersize=8,
+    color="red"
+)
+
+plt.xlabel("Input Flux Φ_in (nM/s)")
+plt.ylabel("Simulation Time to Convergence (hours)")
+plt.title("Time to Reach Steady State vs Input Flux")
+plt.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.show()
