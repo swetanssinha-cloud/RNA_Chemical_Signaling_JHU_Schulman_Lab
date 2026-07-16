@@ -86,125 +86,148 @@ Plot of phi vs time where 50% of I2 is used up
 '''
 
 
-plt.figure(figsize=(10, 6))
-valid = ~np.isnan(summary["t50_initial_s"])
-
-plt.plot(
-    summary.loc[valid, "Phi_in_nMps"],
-    summary.loc[valid, "t50_initial_s"] / 3600,
-    "o-",
-    linewidth=2,
-    markersize=8
-)
-
-plt.xlabel("Input Flux Φ_in (nM/s)")
-plt.ylabel("Time to 50% of initial [I2] (hours)")
-plt.title("Time for [I2] to drop to 50% of its initial value")
-plt.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.show()
-
-'''
-Plot of phi vs time it takes for [I2] to 
-'''
-
-plt.figure(figsize=(10, 6))
-valid = ~np.isnan(summary["t50_offrange_s"])
-
-plt.plot(
-    summary.loc[valid, "Phi_in_nMps"],
-    summary.loc[valid, "t50_offrange_s"] / 3600,
-    "o-",
-    linewidth=2,
-    markersize=8,
-    color="green"
-)
-
-plt.xlabel("Input Flux Φ_in (nM/s)")
-plt.ylabel("Time to 50% of off-fraction [I2] (hours)")
-plt.title("Time for [I2] to drop to midpoint between initial and final values")
-plt.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.show()
-
-# '''plot of t50 * phi in vs phi in'''
 # plt.figure(figsize=(10, 6))
 # valid = ~np.isnan(summary["t50_initial_s"])
 
-# plt.plot(summary["Phi_in_nMps"], summary["Phi_in_nMps"] * summary["t50_initial_s"], "o-", linewidth = 2, markersize = 8)
+# plt.plot(
+#     summary.loc[valid, "Phi_in_nMps"],
+#     summary.loc[valid, "t50_initial_s"] / 3600,
+#     "o-",
+#     linewidth=2,
+#     markersize=8
+# )
 
 # plt.xlabel("Input Flux Φ_in (nM/s)")
-# plt.ylabel("Time to 50% of initial [I2] (hours) * Input Flux")
-# plt.title("Time for [I2] to drop to 50% of its initial value * input flux - to determine proprotionality")
+# plt.ylabel("Time to 50% of initial [I2] (hours)")
+# plt.title("Time for [I2] to drop to 50% of its initial value")
+# plt.grid(True, alpha=0.3)
+# plt.tight_layout()
+# plt.show()
+
+# '''
+# Plot of phi vs time it takes for [I2] to 
+# '''
+
+# plt.figure(figsize=(10, 6))
+# valid = ~np.isnan(summary["t50_offrange_s"])
+
+# plt.plot(
+#     summary.loc[valid, "Phi_in_nMps"],
+#     summary.loc[valid, "t50_offrange_s"] / 3600,
+#     "o-",
+#     linewidth=2,
+#     markersize=8,
+#     color="green"
+# )
+
+# plt.xlabel("Input Flux Φ_in (nM/s)")
+# plt.ylabel("Time to 50% of off-fraction [I2] (hours)")
+# plt.title("Time for [I2] to drop to midpoint between initial and final values")
+# plt.grid(True, alpha=0.3)
+# plt.tight_layout()
+# plt.show()
+
+# # '''plot of t50 * phi in vs phi in'''
+# # plt.figure(figsize=(10, 6))
+# # valid = ~np.isnan(summary["t50_initial_s"])
+
+# # plt.plot(summary["Phi_in_nMps"], summary["Phi_in_nMps"] * summary["t50_initial_s"], "o-", linewidth = 2, markersize = 8)
+
+# # plt.xlabel("Input Flux Φ_in (nM/s)")
+# # plt.ylabel("Time to 50% of initial [I2] (hours) * Input Flux")
+# # plt.title("Time for [I2] to drop to 50% of its initial value * input flux - to determine proprotionality")
+# # plt.grid(True, alpha=0.3)
+# # plt.tight_layout()
+# # plt.show()
+
+
+# '''
+# Plot of I2
+# '''
+# fig, ax = plt.subplots(figsize=(10, 6))
+
+# for _, row in summary.iterrows():
+#     Phi_in_nMps = row["Phi_in_nMps"]
+#     df = pd.read_csv(row["csv_file"])
+
+#     t_h = df["time_s"] / 3600
+#     I2_nM = df["I2_M"] * 1e9
+
+#     ax.plot(t_h, I2_nM, label=f"Φ_in = {Phi_in_nMps:.2f} nM/s")
+
+# ax.set_xlabel("Time (hours)")
+# ax.set_ylabel("[I2] (nM)")
+# ax.set_title("I2 vs time for all input fluxes")
+# ax.grid(True, alpha=0.3)
+# ax.legend(fontsize=8, ncol=2)
+# plt.tight_layout()
+# plt.show()
+
+# '''
+# Plot of final [I2] vs Phi_in
+# '''
+# plt.figure(figsize=(10, 6))
+
+# plt.plot(
+#     summary["Phi_in_nMps"],
+#     summary["final_I2_nM"],
+#     "o-",
+#     linewidth=2,
+#     markersize=8,
+#     color="purple"
+# )
+
+# plt.xlabel("Input Flux Φ_in (nM/s)")
+# plt.ylabel("Final [I2] (nM)")
+# plt.title("Steady-state [I2] vs Input Flux")
 # plt.grid(True, alpha=0.3)
 # plt.tight_layout()
 # plt.show()
 
 
-'''
-Plot of I2
-'''
-fig, ax = plt.subplots(figsize=(10, 6))
-
-for _, row in summary.iterrows():
-    Phi_in_nMps = row["Phi_in_nMps"]
-    df = pd.read_csv(row["csv_file"])
-
-    t_h = df["time_s"] / 3600
-    I2_nM = df["I2_M"] * 1e9
-
-    ax.plot(t_h, I2_nM, label=f"Φ_in = {Phi_in_nMps:.2f} nM/s")
-
-ax.set_xlabel("Time (hours)")
-ax.set_ylabel("[I2] (nM)")
-ax.set_title("I2 vs time for all input fluxes")
-ax.grid(True, alpha=0.3)
-ax.legend(fontsize=8, ncol=2)
-plt.tight_layout()
-plt.show()
-
-'''
-Plot of final [I2] vs Phi_in
-'''
-plt.figure(figsize=(10, 6))
-
-plt.plot(
-    summary["Phi_in_nMps"],
-    summary["final_I2_nM"],
-    "o-",
-    linewidth=2,
-    markersize=8,
-    color="purple"
-)
-
-plt.xlabel("Input Flux Φ_in (nM/s)")
-plt.ylabel("Final [I2] (nM)")
-plt.title("Steady-state [I2] vs Input Flux")
-plt.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.show()
-
 
 '''
 Plot of simulation time to convergence vs Phi_in
 '''
-plt.figure(figsize=(10, 6))
 
-# Only plot simulations that converged
-converged_mask = summary["status"] == "converged"
 
-plt.plot(
-    summary.loc[converged_mask, "Phi_in_nMps"],
-    summary.loc[converged_mask, "sim_time_to_ss_h"],
-    "o-",
-    linewidth=2,
-    markersize=8,
-    color="red"
-)
 
-plt.xlabel("Input Flux Φ_in (nM/s)")
-plt.ylabel("Simulation Time to Convergence (hours)")
-plt.title("Time to Reach Steady State vs Input Flux")
-plt.grid(True, alpha=0.3)
+# Add this to your analysis code after the tw50 calculation
+
+# Time for I2 to drop to 1% of initial (99% depleted)
+tw99_list = []
+
+for _, row in summary.iterrows():
+    csv_file = row["csv_file"]
+    df = pd.read_csv(csv_file)
+    
+    I2_initial = df["I2_M"].iloc[0]
+    target_1percent = 0.01 * I2_initial
+    
+    tw99 = find_crossing_time(df, target_1percent)
+    tw99_list.append(tw99)
+
+summary["t99_s"] = tw99_list
+
+# Then plot both
+fig, ax = plt.subplots(figsize=(10, 6))
+
+ax.plot(summary["Phi_in_nMps"], summary["t50_initial_s"]/3600, 
+        "o-", label="Time to 50%", linewidth=2, markersize=8)
+ax.plot(summary["Phi_in_nMps"], summary["t99_s"]/3600, 
+        "s-", label="Time to 99% depletion", linewidth=2, markersize=8)
+
+# Add convergence time from steady state file
+ss_data = pd.read_csv(os.path.join(INPUT_DIR, "steady_state_values.csv"))
+converged_mask = ss_data["converged"] == True
+ax.plot(ss_data.loc[converged_mask, "Phi_in_nMps"], 
+        ss_data.loc[converged_mask, "sim_time_to_ss_h"],
+        "^-", label="Time to convergence", linewidth=2, markersize=8)
+
+ax.set_xlabel("Input Flux Φ_in (nM/s)")
+ax.set_ylabel("Time (hours)")
+ax.set_title("Comparison of different time metrics")
+ax.legend()
+ax.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.show()
