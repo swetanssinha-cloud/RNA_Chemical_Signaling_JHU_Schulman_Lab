@@ -16,6 +16,9 @@ SWEEP_VALUES = np.array([1000, 2500, 5000, 7500, 10000]) * 1e-9  # Values in SI 
 # For Phi_in sweeps, should I2_0 scale with Phi_in? (True for original behavior)
 SCALE_I2_WITH_PHI_IN = True
 
+# SWEEP_PARAM = 'k_d_ss'
+# SWEEP_VALUES = np.array([1,2,3,4,5]) * 3e-4
+
 # Base parameters (in SI units: M for concentrations, 1/M/s for rates, s for time)
 BASE_PARAMS = {
     'k_slow': 1e5,      # 1/M/s
@@ -88,10 +91,7 @@ def run_simulation(args):
     # Define equations using implicit source term method
     eq_S2 = (TransientTerm(var=S2) ==
              ImplicitSourceTerm(coeff=-k_slow * I2, var=S2) +
-             ImplicitSourceTerm(coeff=-k_fast * Th2, var=S2) +
-             k_d_ds * C_I2 +
-             k_d_ss * C_Th2 +
-             Phi_in)
+             ImplicitSourceTerm(coeff=-k_fast * Th2, var=S2) + ImplicitSourceTerm(coeff=-k_d_ss, var=S2)+ Phi_in)
 
     eq_I2 = (TransientTerm(var=I2) == 
             k_d_ds * C_I2 +
