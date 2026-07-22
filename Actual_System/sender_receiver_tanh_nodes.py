@@ -338,13 +338,11 @@ def build_equations(vars_by_name, params: SenderReceiverParams):
         == DiffusionTerm(coeff=diffusion, var=s2)
         + params.k_p_s_inv * i1o2
         - ImplicitSourceTerm(
-            coeff=(
-                params.k_slow_M_inv_s_inv * i2
+            coeff=
+                (params.k_slow_M_inv_s_inv * i2
                 + params.k_fast_M_inv_s_inv * th2
-                + params.k_d_ss_s_inv
-            ),
-            var=s2,
-        )
+                + params.k_d_ss_s_inv),
+            var=s2,)
     )
 
     eq_i2 = (

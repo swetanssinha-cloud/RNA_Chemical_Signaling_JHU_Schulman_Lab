@@ -188,7 +188,7 @@ def run_spatial_convergence():
         dt_s=10.0,   # small and fixed
     )
 
-    dx_values = [20.0, 15.0, 10.0, 7.5, 5.0]
+    dx_values = [2,1,0.5,0.25] #[20.0, 15.0, 10.0, 7.5, 5.0] # probally should have chosen [2,1,0.5,0.25]
     results = {}
 
     print("\n" + "=" * 80)
@@ -275,7 +275,7 @@ def run_temporal_convergence():
         dx_um=5.0,   # fine and fixed
     )
 
-    dt_values = [240.0, 120.0, 60.0, 30.0, 15.0]  # seconds
+    dt_values = [240.0, 120.0, 60.0, 30.0, 15.0, 10]  # seconds
     results = {}
 
     print("\n" + "=" * 80)
