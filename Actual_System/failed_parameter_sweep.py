@@ -37,7 +37,7 @@ os.environ.setdefault("XDG_CACHE_HOME", "/tmp")
 
 
 SWEEP_PARAMETER = 'center_distance_um'
-SWEEP_VALUES = np.linspace(50,1500, num=25)
+SWEEP_VALUES = np.linspace(100,1500, num =6)
 
 # Available parameters to sweep:
 # - 'node_length_um'
@@ -65,7 +65,7 @@ OUTPUT_DIR = Path("sweep_results")
 SIM_CONFIG = {
     'check_interval': 100,      # Steps between convergence checks
     'save_interval': 10,         # Steps between CSV saves
-    'abs_threshold': 1e-10,       # Convergence threshold (M) - 10 nM
+    'abs_threshold': 1e-8,       # Convergence threshold (M) - 10 nM
     'progress_interval_s': 60,   # Progress print interval (wall-clock seconds)
 }
 
@@ -89,7 +89,7 @@ class SenderReceiverParams:
 
     d_gel_um2_s: float = 60.0
     d_solution_um2_s: float = 150.0
-    k_p_s_inv: float = 0.02
+    k_p_s_inv: float = 0.2 # I swore I changed this to 0.2 - in real life it is 0.02
     k_d_ds_s_inv: float = 3e-4
     k_d_ss_s_inv: float = 3e-4
     k_slow_M_inv_s_inv: float = 1e5
@@ -98,7 +98,7 @@ class SenderReceiverParams:
     sender_switch_nM: float = 100.0
     receiver_switch_nM: float = 100.0
     threshold_uM: float = 5.0
-    transition_sharpness: float = 5 # maybe 5 is too sharp, but how could anything be more sharp than mask case scenario? 
+    transition_sharpness: float = 20 # maybe 5 is too sharp, but how could anything be more sharp than mask case scenario? 
 
     def validate(self) -> None:
         if self.center_distance_um < self.node_length_um:
@@ -153,8 +153,7 @@ def initialize_variables(
     y = np.asarray(mesh.cellCenters[1].value)
 
     # Radius of circular nodes (half of node_length)
-    R = 0.5 * params.node_length_um
-    #R = (params.node_length_um) // np.sqrt(np.pi) #I think this should be it.
+    R = (params.node_length_um) / np.sqrt(np.pi)  
 
     # Sharpness parameter for transitions
     c = params.transition_sharpness
@@ -534,7 +533,7 @@ def main():
 
 
 if __name__ == "__main__":
-    start_time = simtime.perf_counter
+    start_time = simtime.perf_counter()
     main()
-    end_time = simtime.perf_counter
+    end_time = simtime.perf_counter()
     print(f"sim time: {end_time - start_time}")

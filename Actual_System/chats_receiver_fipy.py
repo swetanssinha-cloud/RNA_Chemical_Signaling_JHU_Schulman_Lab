@@ -16,15 +16,7 @@ Concentrations are represented in M (mol/L), so the SI bimolecular rates are
 used directly as `1/M/s`.
 """
 
-
-'''
-original code given by professor with sharp boundries and square nodes. 
-'''
-
-
-
 from fipy import CellVariable, DiffusionTerm, Grid2D, ImplicitSourceTerm, TransientTerm
-
 
 import argparse
 import os
@@ -46,30 +38,26 @@ MICROMOLAR = 1e-6 * MOLAR
 
 @dataclass
 class SenderReceiverParams:
-    node_length_um: float = 50.0 #um
-    center_distance_um: float = 300.0 #um
-    bath_margin_um: float = 250.0 #um
-
-    dx_um: float = 10.0 #um
-
-
-    total_hours: float = 8.0 #hrs
-    dt_s: float = 60.0 #s
-
+    node_length_um: float = 50.0
+    center_distance_um: float = 300.0
+    bath_margin_um: float = 250.0
+    dx_um: float = 10.0
+    total_hours: float = 8.0
+    dt_s: float = 60.0
     nonlinear_tolerance: float = 1e-9
     max_sweeps_per_step: int = 20
 
-    d_gel_um2_s: float = 60.0 #(um^2)/s
-    d_solution_um2_s: float = 150.0 #(um^2)/s
-    k_p_s_inv: float = 0.2 #1/s
-    k_d_ds_s_inv: float = 3e-4 #1/s
-    k_d_ss_s_inv: float = 3e-4 #1/s
-    k_slow_M_inv_s_inv: float = 1e5 #1/(Ms)
-    k_fast_M_inv_s_inv: float = 1e6 #1/(Ms)
+    d_gel_um2_s: float = 60.0
+    d_solution_um2_s: float = 150.0
+    k_p_s_inv: float = 0.2
+    k_d_ds_s_inv: float = 3e-4
+    k_d_ss_s_inv: float = 3e-4
+    k_slow_M_inv_s_inv: float = 1e5
+    k_fast_M_inv_s_inv: float = 1e6
 
-    sender_switch_nM: float = 100.0 #nM
-    receiver_switch_nM: float = 100.0 #nM
-    threshold_uM: float = 5.0 #uM
+    sender_switch_nM: float = 100.0
+    receiver_switch_nM: float = 100.0
+    threshold_uM: float = 5.0
 
     def validate(self) -> None:
         if self.center_distance_um < self.node_length_um:
@@ -104,7 +92,6 @@ def apply_preset(params: SenderReceiverParams, preset: str | None) -> SenderRece
 def build_geometry(params: SenderReceiverParams):
     width_um = 2.0 * params.bath_margin_um + params.center_distance_um + params.node_length_um
     height_um = 2.0 * params.bath_margin_um + params.node_length_um
-     
 
     nx = int(np.ceil(width_um / params.dx_um))
     ny = int(np.ceil(height_um / params.dx_um))
@@ -119,11 +106,8 @@ def build_geometry(params: SenderReceiverParams):
     receiver_center_y = sender_center_y
 
     half = 0.5 * params.node_length_um
-    sender_mask = (
-        (np.abs(x - sender_center_x) <= half) & (np.abs(y - sender_center_y) <= half))
-    
-    receiver_mask = (
-        (np.abs(x - receiver_center_x) <= half) & (np.abs(y - receiver_center_y) <= half))
+    sender_mask = (np.abs(x - sender_center_x) <= half) & (np.abs(y - sender_center_y) <= half)
+    receiver_mask = (np.abs(x - receiver_center_x) <= half) & (np.abs(y - receiver_center_y) <= half)
 
     return mesh, nx, ny, sender_mask, receiver_mask
 
@@ -221,24 +205,10 @@ def mean_in_mask(var: CellVariable, mask: np.ndarray) -> float:
     return float(values[mask].mean())
 
 
-def total_in_mask(var: CellVariable, mask: np.ndarray, dx_um: float, dy_um: float) -> float:
-    """
-    Compute total amount in a region by approximating integral:
-    sum(concentration * area).
-    Since the mesh is uniform, area per cell = dx * dy.
-    """
+def mean_in_domain(var: CellVariable) -> float:
     values = np.asarray(var.value)
-    cell_area = dx_um * dy_um
-    return float(values[mask].sum() * cell_area)
+    return float(values.mean())
 
-
-def total_in_domain(var: CellVariable, dx_um: float, dy_um: float) -> float:
-    """
-    Total amount over the whole domain.
-    """
-    values = np.asarray(var.value)
-    cell_area = dx_um * dy_um
-    return float(values.sum() * cell_area)
 
 def simulate_sender_receiver(params: SenderReceiverParams, verbose: bool = True):
     params.validate()
@@ -248,8 +218,12 @@ def simulate_sender_receiver(params: SenderReceiverParams, verbose: bool = True)
 
     n_steps = int(np.ceil(params.total_hours * 3600.0 / params.dt_s))
     times_h = np.zeros(n_steps + 1)
+
     receiver_i2_nM = np.zeros(n_steps + 1)
     receiver_total_rna_nM = np.zeros(n_steps + 1)
+    sender_s2_nM = np.zeros(n_steps + 1)
+    receiver_s2_nM = np.zeros(n_steps + 1)
+    domain_s2_nM = np.zeros(n_steps + 1)
 
     receiver_i2_nM[0] = mean_in_mask(vars_by_name["I2"], receiver_mask) / NANOMOLAR
     receiver_total_rna_nM[0] = (
@@ -257,6 +231,9 @@ def simulate_sender_receiver(params: SenderReceiverParams, verbose: bool = True)
         + mean_in_mask(vars_by_name["S2_I2"], receiver_mask)
         + mean_in_mask(vars_by_name["S2_Th2"], receiver_mask)
     ) / NANOMOLAR
+    sender_s2_nM[0] = mean_in_mask(vars_by_name["S2"], sender_mask) / NANOMOLAR
+    receiver_s2_nM[0] = mean_in_mask(vars_by_name["S2"], receiver_mask) / NANOMOLAR
+    domain_s2_nM[0] = mean_in_domain(vars_by_name["S2"]) / NANOMOLAR
 
     dynamic_vars = (
         vars_by_name["S2"],
@@ -289,12 +266,18 @@ def simulate_sender_receiver(params: SenderReceiverParams, verbose: bool = True)
             + mean_in_mask(vars_by_name["S2_I2"], receiver_mask)
             + mean_in_mask(vars_by_name["S2_Th2"], receiver_mask)
         ) / NANOMOLAR
+        sender_s2_nM[step] = mean_in_mask(vars_by_name["S2"], sender_mask) / NANOMOLAR
+        receiver_s2_nM[step] = mean_in_mask(vars_by_name["S2"], receiver_mask) / NANOMOLAR
+        domain_s2_nM[step] = mean_in_domain(vars_by_name["S2"]) / NANOMOLAR
 
         if verbose and (step == 1 or step % max(1, n_steps // 10) == 0 or step == n_steps):
             print(
                 f"step {step:4d}/{n_steps} | t = {times_h[step]:5.2f} h | "
                 f"receiver I2 = {receiver_i2_nM[step]:8.3f} nM | "
                 f"receiver total RNA = {receiver_total_rna_nM[step]:8.3f} nM | "
+                f"sender S2 = {sender_s2_nM[step]:8.3f} nM | "
+                f"receiver S2 = {receiver_s2_nM[step]:8.3f} nM | "
+                f"domain S2 = {domain_s2_nM[step]:8.3f} nM | "
                 f"sweeps = {sweep_count:2d} | residual = {residual:.3e}"
             )
 
@@ -309,6 +292,9 @@ def simulate_sender_receiver(params: SenderReceiverParams, verbose: bool = True)
         "times_h": times_h,
         "receiver_i2_nM": receiver_i2_nM,
         "receiver_total_rna_nM": receiver_total_rna_nM,
+        "sender_s2_nM": sender_s2_nM,
+        "receiver_s2_nM": receiver_s2_nM,
+        "domain_s2_nM": domain_s2_nM,
     }
 
 
@@ -319,11 +305,10 @@ def field_to_image(values: np.ndarray, nx: int, ny: int) -> np.ndarray:
 def save_kinetics_plot(result, output_path: Path):
     params = result["params"]
     times_h = result["times_h"]
-    receiver_i2_nM = result["receiver_i2_nM"]
-    receiver_total_rna_nM = result["receiver_total_rna_nM"]
 
     fig, axes = plt.subplots(2, 1, figsize=(7, 7), sharex=True)
-    axes[0].plot(times_h, receiver_i2_nM, color="#0c5da5", lw=2.5)
+
+    axes[0].plot(times_h, result["receiver_i2_nM"], color="#0c5da5", lw=2.5)
     axes[0].set_ylabel("Receiver I2 (nM)")
     axes[0].set_title(
         f"Sender/Receiver kinetics | distance = {params.center_distance_um:.0f} um, "
@@ -331,11 +316,46 @@ def save_kinetics_plot(result, output_path: Path):
     )
     axes[0].grid(alpha=0.25)
 
-    axes[1].plot(times_h, receiver_total_rna_nM, color="#b54e00", lw=2.5)
+    axes[1].plot(times_h, result["receiver_total_rna_nM"], color="#b54e00", lw=2.5)
     axes[1].set_xlabel("Time (h)")
     axes[1].set_ylabel("Receiver total RNA (nM)")
     axes[1].grid(alpha=0.25)
 
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
+
+
+def save_diagnostic_plot(result, output_path: Path):
+    params = result["params"]
+    times_h = result["times_h"]
+
+    fig, axes = plt.subplots(4, 1, figsize=(8, 10), sharex=True)
+
+    axes[0].plot(times_h, result["receiver_i2_nM"], lw=2, color="#0c5da5")
+    axes[0].set_ylabel("Receiver I2 (nM)")
+    axes[0].grid(alpha=0.25)
+
+    axes[1].plot(times_h, result["receiver_total_rna_nM"], lw=2, color="#b54e00")
+    axes[1].set_ylabel("Receiver total RNA (nM)")
+    axes[1].grid(alpha=0.25)
+
+    axes[2].plot(times_h, result["sender_s2_nM"], lw=2, color="#6a0dad")
+    axes[2].set_ylabel("Sender S2 (nM)")
+    axes[2].grid(alpha=0.25)
+
+    axes[3].plot(times_h, result["receiver_s2_nM"], lw=2, label="Receiver S2")
+    axes[3].plot(times_h, result["domain_s2_nM"], lw=2, label="Domain-mean S2")
+    axes[3].set_ylabel("S2 concentration (nM)")
+    axes[3].set_xlabel("Time (h)")
+    axes[3].legend()
+    axes[3].grid(alpha=0.25)
+
+    fig.suptitle(
+        f"Diagnostics | distance = {params.center_distance_um:.0f} um, "
+        f"Th2 = {params.threshold_uM:.2f} uM",
+        y=0.995
+    )
     fig.tight_layout()
     fig.savefig(output_path, dpi=200)
     plt.close(fig)
@@ -380,40 +400,18 @@ def save_field_plot(result, output_path: Path):
     plt.close(fig)
 
 
-def save_distance_sweep_plot(distances_um, receiver_i2_nM, receiver_total_rna_nM, output_path: Path):
-    fig, axes = plt.subplots(2, 1, figsize=(7, 7), sharex=True)
-
-    axes[0].plot(distances_um, receiver_i2_nM, marker="o", color="#0c5da5", lw=2)
-    axes[0].set_ylabel("Steady-state receiver I2 (nM)")
-    axes[0].grid(alpha=0.25)
-
-    axes[1].plot(distances_um, receiver_total_rna_nM, marker="o", color="#b54e00", lw=2)
-    axes[1].set_xlabel("Sender/receiver center distance (um)")
-    axes[1].set_ylabel("Steady-state receiver total RNA (nM)")
-    axes[1].grid(alpha=0.25)
-
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=200)
-    plt.close(fig)
-
-
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--preset",
-        choices=["comsol-2-1"],
-        default=None,
-        help="Apply a named parameter preset.",
-    )
-    parser.add_argument("--distance-um", type=float, default=300.0, help="Node center distance.")
-    parser.add_argument("--node-length-um", type=float, default=50.0, help="Hydrogel side length.")
-    parser.add_argument("--bath-margin-um", type=float, default=250.0, help="Bath margin around nodes.")
-    parser.add_argument("--dx-um", type=float, default=10.0, help="Square cell size.")
-    parser.add_argument("--hours", type=float, default=8.0, help="Total simulated time.")
-    parser.add_argument("--dt-s", type=float, default=60.0, help="Time step in seconds.")
-    parser.add_argument("--threshold-uM", type=float, default=5.0, help="Initial threshold in receiver.")
-    parser.add_argument("--sender-switch-nM", type=float, default=100.0, help="Initial sender I1O2.")
-    parser.add_argument("--receiver-switch-nM", type=float, default=100.0, help="Initial receiver I2.")
+    parser.add_argument("--preset", choices=["comsol-2-1"], default=None)
+    parser.add_argument("--distance-um", type=float, default=300.0)
+    parser.add_argument("--node-length-um", type=float, default=50.0)
+    parser.add_argument("--bath-margin-um", type=float, default=250.0)
+    parser.add_argument("--dx-um", type=float, default=10.0)
+    parser.add_argument("--hours", type=float, default=8.0)
+    parser.add_argument("--dt-s", type=float, default=60.0)
+    parser.add_argument("--threshold-uM", type=float, default=5.0)
+    parser.add_argument("--sender-switch-nM", type=float, default=100.0)
+    parser.add_argument("--receiver-switch-nM", type=float, default=100.0)
     parser.add_argument(
         "--sweep-distances-um",
         type=float,
@@ -425,9 +423,8 @@ def parse_args():
         "--output-prefix",
         type=Path,
         default=Path("reaction_diffusion_models/sender_receiver"),
-        help="Prefix for saved figures.",
     )
-    parser.add_argument("--quiet", action="store_true", help="Suppress progress prints.")
+    parser.add_argument("--quiet", action="store_true")
     return parser.parse_args()
 
 
@@ -451,17 +448,11 @@ def main():
     result = simulate_sender_receiver(params, verbose=not args.quiet)
     save_kinetics_plot(result, args.output_prefix.with_name(args.output_prefix.name + "_kinetics.png"))
     save_field_plot(result, args.output_prefix.with_name(args.output_prefix.name + "_fields.png"))
+    save_diagnostic_plot(result, args.output_prefix.with_name(args.output_prefix.name + "_diagnostics.png"))
 
-
-
-    print(
-        f"Saved kinetics plot to "
-        f"{args.output_prefix.with_name(args.output_prefix.name + '_kinetics.png')}"
-    )
-    print(
-        f"Saved field plot to "
-        f"{args.output_prefix.with_name(args.output_prefix.name + '_fields.png')}"
-    )
+    print(f"Saved kinetics plot to {args.output_prefix.with_name(args.output_prefix.name + '_kinetics.png')}")
+    print(f"Saved field plot to {args.output_prefix.with_name(args.output_prefix.name + '_fields.png')}")
+    print(f"Saved diagnostic plot to {args.output_prefix.with_name(args.output_prefix.name + '_diagnostics.png')}")
 
     if args.sweep_distances_um:
         final_i2 = []
@@ -483,14 +474,22 @@ def main():
             final_total_rna.append(sweep_result["receiver_total_rna_nM"][-1])
 
         sweep_plot = args.output_prefix.with_name(args.output_prefix.name + "_distance_sweep.png")
-        save_distance_sweep_plot(
-            np.asarray(args.sweep_distances_um),
-            np.asarray(final_i2),
-            np.asarray(final_total_rna),
-            sweep_plot,
-        )
-        print(f"Saved distance-response plot to {sweep_plot}")
+        fig, axes = plt.subplots(2, 1, figsize=(7, 7), sharex=True)
 
+        axes[0].plot(args.sweep_distances_um, final_i2, marker="o", color="#0c5da5", lw=2)
+        axes[0].set_ylabel("Steady-state receiver I2 (nM)")
+        axes[0].grid(alpha=0.25)
+
+        axes[1].plot(args.sweep_distances_um, final_total_rna, marker="o", color="#b54e00", lw=2)
+        axes[1].set_xlabel("Sender/receiver center distance (um)")
+        axes[1].set_ylabel("Steady-state receiver total RNA (nM)")
+        axes[1].grid(alpha=0.25)
+
+        fig.tight_layout()
+        fig.savefig(sweep_plot, dpi=200)
+        plt.close(fig)
+
+        print(f"Saved distance-response plot to {sweep_plot}")
 
 
 if __name__ == "__main__":
@@ -498,7 +497,3 @@ if __name__ == "__main__":
     main()
     end_time = simtime.perf_counter()
     print(f"\ntotal sim time: {end_time - start_time:.2f} seconds")
-    
-
-
-    

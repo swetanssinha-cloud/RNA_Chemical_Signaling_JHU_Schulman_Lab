@@ -31,8 +31,10 @@ MICROMOLAR = 1e-6 * MOLAR
 @dataclass
 class SenderReceiverParams:
     node_length_um: float = 50.0
-    center_distance_um: float = 300.0
+    center_distance_um: float = 1500.0
     bath_margin_um: float = 250.0
+
+    
     dx_um: float = 10.0
     total_hours: float = 8.0
     dt_s: float = 60.0
@@ -52,7 +54,7 @@ class SenderReceiverParams:
     threshold_uM: float = 5.0
     
     # New parameter for smooth transition sharpness
-    transition_sharpness: float = 1 #something that should be changed - i think as c goes to inf, sharper and sharper 
+    transition_sharpness: float = 20 #something that should be changed - i think as c goes to inf, sharper and sharper 
 
     def validate(self) -> None:
         if self.center_distance_um < self.node_length_um:
@@ -171,12 +173,11 @@ def build_geometry(params: SenderReceiverParams):
         - sender_center_x, sender_center_y: sender node center
         - receiver_center_x, receiver_center_y: receiver node center
     """
-    # width_um = 2.0 * params.bath_margin_um + params.center_distance_um + params.node_length_um
-    # height_um = 2.0 * params.bath_margin_um + params.node_length_um
+    width_um = 2500 #2.0 * params.bath_margin_um + params.center_distance_um + params.node_length_um
+    height_um = 2.0 * params.bath_margin_um + params.node_length_um
     #The lines above are things that Professor's Chat gave
     #Below is what I see in Chen'25
-    width_um = 5000
-    height_um = 5000
+
 
     nx = int(np.ceil(width_um / params.dx_um))
     ny = int(np.ceil(height_um / params.dx_um))
@@ -192,7 +193,7 @@ def build_geometry(params: SenderReceiverParams):
     receiver_center_y = sender_center_y
 
     # Create masks for averaging and plotting (using circular regions)
-    R = 0.5 * params.node_length_um
+    R = (params.node_length_um)/ np.sqrt(np.pi)
     sender_mask = (np.sqrt((x - sender_center_x)**2 + (y - sender_center_y)**2) <= R)
     receiver_mask = (np.sqrt((x - receiver_center_x)**2 + (y - receiver_center_y)**2) <= R)
 
@@ -240,7 +241,7 @@ def initialize_variables(
     y = np.asarray(mesh.cellCenters[1].value)
     
     # Radius of circular nodes (half of node_length)
-    R = 0.5 * params.node_length_um
+    R = (params.node_length_um) / np.sqrt(np.pi)  
     
     # Sharpness parameter for transitions
     c = params.transition_sharpness
