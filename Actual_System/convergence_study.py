@@ -64,7 +64,7 @@ class SenderReceiverParams:
     receiver_switch_nM: float = 100.0
     threshold_uM: float = 5.0
 
-    transition_sharpness: float =1
+    transition_sharpness: float = 0.5
 
     def validate(self) -> None:
         if self.center_distance_um < self.node_length_um:

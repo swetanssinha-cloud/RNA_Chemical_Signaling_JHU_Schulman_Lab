@@ -1,6 +1,0 @@
-csv_file,threshold_uM,final_I2_M,final_Th2_M,final_S2_M,converged,sim_time_to_ss_h
-sweep_results/timeseries_threshold_uM_1.000000e+00.csv,1.0,9.280007120346875e-09,1.039432194872874e-08,2.2186165707078038e-08,True,8.0
-sweep_results/timeseries_threshold_uM_2.000000e+00.csv,2.0,1.2482597072590387e-08,2.917059842522904e-08,1.5768369302459575e-08,True,8.0
-sweep_results/timeseries_threshold_uM_5.000000e+00.csv,5.0,5.302799864211816e-08,7.569337321244348e-07,1.607479694972635e-09,True,8.0
-sweep_results/timeseries_threshold_uM_1.000000e+01.csv,10.0,7.301940722680949e-08,5.256952598257524e-06,2.456243882878077e-10,True,8.0
-sweep_results/timeseries_threshold_uM_2.000000e+01.csv,20.0,7.70443977680679e-08,1.4210298455863958e-05,3.883643314005808e-11,True,8.0

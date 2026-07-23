@@ -171,8 +171,12 @@ def build_geometry(params: SenderReceiverParams):
         - sender_center_x, sender_center_y: sender node center
         - receiver_center_x, receiver_center_y: receiver node center
     """
-    width_um = 2.0 * params.bath_margin_um + params.center_distance_um + params.node_length_um
-    height_um = 2.0 * params.bath_margin_um + params.node_length_um
+    # width_um = 2.0 * params.bath_margin_um + params.center_distance_um + params.node_length_um
+    # height_um = 2.0 * params.bath_margin_um + params.node_length_um
+    #The lines above are things that Professor's Chat gave
+    #Below is what I see in Chen'25
+    width_um = 5000
+    height_um = 5000
 
     nx = int(np.ceil(width_um / params.dx_um))
     ny = int(np.ceil(height_um / params.dx_um))
