@@ -1,4 +1,5 @@
 from __future__ import annotations
+import pandas as pd
 
 #!/usr/bin/env python3
 """
@@ -47,13 +48,13 @@ MICROMOLAR = 1e-6 * MOLAR
 @dataclass
 class SenderReceiverParams:
     node_length_um: float = 50.0 #um
-    center_distance_um: float = 300.0 #um
+    center_distance_um: float = 1500.0 #um
     bath_margin_um: float = 250.0 #um
 
     dx_um: float = 10.0 #um
 
 
-    total_hours: float = 8.0 #hrs
+    total_hours: float = 8 #hrs
     dt_s: float = 60.0 #s
 
     nonlinear_tolerance: float = 1e-9
@@ -142,6 +143,7 @@ def initialize_variables(mesh, sender_mask, receiver_mask, params: SenderReceive
     i1o2.setValue(params.sender_switch_nM * NANOMOLAR, where=sender_mask)
     i2.setValue(params.receiver_switch_nM * NANOMOLAR, where=receiver_mask)
     th2.setValue(params.threshold_uM * MICROMOLAR, where=receiver_mask)
+
 
     return {
         "S2": s2,
@@ -244,6 +246,18 @@ def simulate_sender_receiver(params: SenderReceiverParams, verbose: bool = True)
     params.validate()
     mesh, nx, ny, sender_mask, receiver_mask = build_geometry(params)
     vars_by_name = initialize_variables(mesh, sender_mask, receiver_mask, params)
+
+        # Right after: vars_by_name = initialize_variables(mesh, sender_mask, receiver_mask, params)
+    print(f"\n=== DEBUG: Single-Run Initial Conditions (distance={params.center_distance_um}) ===")
+    initial_i2 = mean_in_mask(vars_by_name["I2"], receiver_mask) / NANOMOLAR
+    print(f"Initial I2 in receiver: {initial_i2:.3f} nM")
+    initial_th2 = mean_in_mask(vars_by_name["Th2"], receiver_mask) / MICROMOLAR
+    print(f"Initial Th2 in receiver: {initial_th2:.3f} μM")
+    print(f"Parameters: node_length={params.node_length_um}, distance={params.center_distance_um}")
+    print(f"k_p_s_inv: {params.k_p_s_inv}")
+    print(f"total_hours: {params.total_hours}")
+    print("=" * 50 + "\n")
+
     eqs = build_equations(vars_by_name, params)
 
     n_steps = int(np.ceil(params.total_hours * 3600.0 / params.dt_s))
@@ -281,6 +295,7 @@ def simulate_sender_receiver(params: SenderReceiverParams, verbose: bool = True)
             residual = max(residual, eqs["S2_Th2"].sweep(var=vars_by_name["S2_Th2"], dt=params.dt_s))
             clip_nonnegative(vars_by_name)
             sweep_count += 1
+    
 
         times_h[step] = step * params.dt_s / 3600.0
         receiver_i2_nM[step] = mean_in_mask(vars_by_name["I2"], receiver_mask) / NANOMOLAR
@@ -290,6 +305,7 @@ def simulate_sender_receiver(params: SenderReceiverParams, verbose: bool = True)
             + mean_in_mask(vars_by_name["S2_Th2"], receiver_mask)
         ) / NANOMOLAR
 
+    
         if verbose and (step == 1 or step % max(1, n_steps // 10) == 0 or step == n_steps):
             print(
                 f"step {step:4d}/{n_steps} | t = {times_h[step]:5.2f} h | "
@@ -297,6 +313,14 @@ def simulate_sender_receiver(params: SenderReceiverParams, verbose: bool = True)
                 f"receiver total RNA = {receiver_total_rna_nM[step]:8.3f} nM | "
                 f"sweeps = {sweep_count:2d} | residual = {residual:.3e}"
             )
+            # At the end of simulate_sender_receiver(), before the return statement:
+    print(f"\n=== DEBUG: Single-Run Final Values (distance={params.center_distance_um}) ===")
+    print(f"Final I2: {receiver_i2_nM[-1]:.3f} nM")
+    print(f"Final Th2: {mean_in_mask(vars_by_name['Th2'], receiver_mask) / MICROMOLAR:.3f} μM")
+    print(f"Final S2: {(mean_in_mask(vars_by_name['S2'], receiver_mask) + mean_in_mask(vars_by_name['S2_I2'], receiver_mask) + mean_in_mask(vars_by_name['S2_Th2'], receiver_mask)) / NANOMOLAR:.3f} nM (total)")
+    print(f"Simulation ran for: {times_h[-1]:.2f} hours")
+    print(f"Total steps: {n_steps}")
+    print("=" * 50 + "\n")
 
     return {
         "params": params,
@@ -498,6 +522,28 @@ if __name__ == "__main__":
     main()
     end_time = simtime.perf_counter()
     print(f"\ntotal sim time: {end_time - start_time:.2f} seconds")
+
+
+
+    df = pd.read_csv("sweep_results/timeseries_center_distance_um_1.500000e+03.csv")
+
+    # Find value at 6.67 hours
+    print(df[df['time_s'].between(6.67*3600 - 10, 6.67*3600 + 10)])
+
+    # Find value at 8 hours (if it exists)
+    print(df[df['time_s'].between(8.0*3600 - 10, 8.0*3600 + 10)])
+
+    # Plot the full trajectory
+    
+    plt.plot(df['time_s']/3600, df['I2_M']*1e9)
+    plt.xlabel('Time (hours)')
+    plt.ylabel('I2 (nM)')
+    plt.axhline(11, color='r', linestyle='--', label='Sweep final (6.67h)')
+    plt.axhline(1, color='g', linestyle='--', label='Single-run final (8h)?')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig()
+    plt.show()
     
 
 

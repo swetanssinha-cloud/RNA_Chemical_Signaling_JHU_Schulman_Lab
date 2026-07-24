@@ -1,240 +1,155 @@
+"""
+Sender-Receiver reaction-diffusion parameter sweep simulation with parallel execution.
+
+This script runs parameter sweeps in parallel with convergence detection and saves 
+time series data to CSV files. Uses SHARP SQUARE boundaries from sender_receiver_fipy.py.
+"""
+
 from __future__ import annotations
 
-#!/usr/bin/env python3
-"""
-FiPy implementation of the 2-node sender/receiver model from SI Section 2.1.
-
-Model assumptions used here:
-- S2 is the only diffusing species.
-- The sender switch (I1O2), receiver switch (I2), and threshold (Th2) are
-  immobilized within their hydrogel nodes.
-- Bound complexes (S2:I2 and S2:Th2) are also immobilized.
-- The outer bath boundary is reflective (FiPy's default no-flux condition).
-
-Units are kept in micrometers, seconds, and molar concentration.
-Concentrations are represented in M (mol/L), so the SI bimolecular rates are
-used directly as `1/M/s`.
-"""
-
-from fipy import CellVariable, DiffusionTerm, Grid2D, ImplicitSourceTerm, TransientTerm
-
-import argparse
 import os
+import glob
+import time as simtime
 from dataclasses import dataclass
 from pathlib import Path
-import time as simtime
+from multiprocessing import Pool, cpu_count
+import pandas as pd
+import numpy as np
+
+# Import all functions from the original sharp-boundary implementation
+from sender_receiver_fipy import (
+    SenderReceiverParams,
+    build_geometry,
+    initialize_variables,
+    build_equations,
+    clip_nonnegative,
+    mean_in_mask,
+    MOLAR,
+    NANOMOLAR,
+    MICROMOLAR
+)
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/mplconfig")
 os.environ.setdefault("XDG_CACHE_HOME", "/tmp")
 
-import matplotlib.pyplot as plt
-import numpy as np
+# ============================================================================
+# SWEEP CONFIGURATION
+# ============================================================================
+# Specify which parameter to sweep and the values to test
+
+SWEEP_PARAMETER = 'center_distance_um'
+SWEEP_VALUES = np.linspace(100, 1500, num=6)
+
+# Available parameters to sweep:
+# - 'node_length_um'
+# - 'center_distance_um'
+# - 'bath_margin_um'
+# - 'dx_um'
+# - 'total_hours'
+# - 'dt_s'
+# - 'd_gel_um2_s'
+# - 'd_solution_um2_s'
+# - 'k_p_s_inv'
+# - 'k_d_ds_s_inv'
+# - 'k_d_ss_s_inv'
+# - 'k_slow_M_inv_s_inv'
+# - 'k_fast_M_inv_s_inv'
+# - 'sender_switch_nM'
+# - 'receiver_switch_nM'
+# - 'threshold_uM'
+
+# Output directory for results
+OUTPUT_DIR = Path("sweep_results")
+
+# Simulation control parameters
+SIM_CONFIG = {
+    'check_interval': 100,      # Steps between convergence checks
+    'save_interval': 10,         # Steps between CSV saves
+    'abs_threshold': 1e-8,       # Convergence threshold (M) - 10 nM
+    'progress_interval_s': 60,   # Progress print interval (wall-clock seconds)
+}
 
 
-MOLAR = 1.0
-NANOMOLAR = 1e-9 * MOLAR
-MICROMOLAR = 1e-6 * MOLAR
-
-
-@dataclass
-class SenderReceiverParams:
-    node_length_um: float = 50.0
-    center_distance_um: float = 300.0
-    bath_margin_um: float = 250.0
-    dx_um: float = 10.0
-    total_hours: float = 8.0
-    dt_s: float = 60.0
-    nonlinear_tolerance: float = 1e-9
-    max_sweeps_per_step: int = 20
-
-    d_gel_um2_s: float = 60.0
-    d_solution_um2_s: float = 150.0
-    k_p_s_inv: float = 0.2
-    k_d_ds_s_inv: float = 3e-4
-    k_d_ss_s_inv: float = 3e-4
-    k_slow_M_inv_s_inv: float = 1e5
-    k_fast_M_inv_s_inv: float = 1e6
-
-    sender_switch_nM: float = 100.0
-    receiver_switch_nM: float = 100.0
-    threshold_uM: float = 5.0
-
-    def validate(self) -> None:
-        if self.center_distance_um < self.node_length_um:
-            raise ValueError(
-                "center_distance_um must be at least node_length_um to avoid overlapping nodes."
-            )
-        if self.dx_um <= 0 or self.dt_s <= 0 or self.total_hours <= 0:
-            raise ValueError("dx_um, dt_s, and total_hours must be positive.")
-
-
-def apply_preset(params: SenderReceiverParams, preset: str | None) -> SenderReceiverParams:
-    if not preset:
-        return params
-    if preset == "comsol-2-1":
-        params.node_length_um = 75.0
-        params.center_distance_um = 175.0
-        params.bath_margin_um = 2375.0
-        params.d_gel_um2_s = 60.0
-        params.d_solution_um2_s = 150.0
-        params.k_p_s_inv = 0.2
-        params.k_d_ds_s_inv = 3e-4
-        params.k_d_ss_s_inv = 3e-4
-        params.k_slow_M_inv_s_inv = 1e5
-        params.k_fast_M_inv_s_inv = 1e6
-        params.sender_switch_nM = 100.0
-        params.receiver_switch_nM = 100.0
-        params.threshold_uM = 10.0
-        return params
-    raise ValueError(f"Unknown preset: {preset}")
-
-
-def build_geometry(params: SenderReceiverParams):
-    width_um = 2.0 * params.bath_margin_um + params.center_distance_um + params.node_length_um
-    height_um = 2.0 * params.bath_margin_um + params.node_length_um
-
-    nx = int(np.ceil(width_um / params.dx_um))
-    ny = int(np.ceil(height_um / params.dx_um))
-    mesh = Grid2D(dx=params.dx_um, dy=params.dx_um, nx=nx, ny=ny)
-
-    x = np.asarray(mesh.cellCenters[0].value)
-    y = np.asarray(mesh.cellCenters[1].value)
-
-    sender_center_x = params.bath_margin_um + 0.5 * params.node_length_um
-    sender_center_y = 0.5 * height_um
-    receiver_center_x = sender_center_x + params.center_distance_um
-    receiver_center_y = sender_center_y
-
-    half = 0.5 * params.node_length_um
-    sender_mask = (np.abs(x - sender_center_x) <= half) & (np.abs(y - sender_center_y) <= half)
-    receiver_mask = (np.abs(x - receiver_center_x) <= half) & (np.abs(y - receiver_center_y) <= half)
-
-    return mesh, nx, ny, sender_mask, receiver_mask
-
-
-def initialize_variables(mesh, sender_mask, receiver_mask, params: SenderReceiverParams):
-    s2 = CellVariable(name="S2", mesh=mesh, value=0.0, hasOld=True)
-    i2 = CellVariable(name="I2", mesh=mesh, value=0.0, hasOld=True)
-    s2_i2 = CellVariable(name="S2_I2", mesh=mesh, value=0.0, hasOld=True)
-    th2 = CellVariable(name="Th2", mesh=mesh, value=0.0, hasOld=True)
-    s2_th2 = CellVariable(name="S2_Th2", mesh=mesh, value=0.0, hasOld=True)
-
-    i1o2 = CellVariable(name="I1O2", mesh=mesh, value=0.0)
-    diffusion = CellVariable(name="D", mesh=mesh, value=params.d_solution_um2_s)
-
-    diffusion.setValue(params.d_gel_um2_s, where=sender_mask | receiver_mask)
-    i1o2.setValue(params.sender_switch_nM * NANOMOLAR, where=sender_mask)
-    i2.setValue(params.receiver_switch_nM * NANOMOLAR, where=receiver_mask)
-    th2.setValue(params.threshold_uM * MICROMOLAR, where=receiver_mask)
-
-    return {
-        "S2": s2,
-        "I2": i2,
-        "S2_I2": s2_i2,
-        "Th2": th2,
-        "S2_Th2": s2_th2,
-        "I1O2": i1o2,
-        "D": diffusion,
+def run_simulation(args):
+    """
+    Run a single sender-receiver simulation with given parameters.
+    This function is designed to be called by multiprocessing.Pool.
+    """
+    sweep_value, base_params, sweep_param, sim_config = args
+    
+    # Create parameters with modified value
+    params_dict = {
+        'node_length_um': base_params.node_length_um,
+        'center_distance_um': base_params.center_distance_um,
+        'bath_margin_um': base_params.bath_margin_um,
+        'dx_um': base_params.dx_um,
+        'total_hours': base_params.total_hours,
+        'dt_s': base_params.dt_s,
+        'nonlinear_tolerance': base_params.nonlinear_tolerance,
+        'max_sweeps_per_step': base_params.max_sweeps_per_step,
+        'd_gel_um2_s': base_params.d_gel_um2_s,
+        'd_solution_um2_s': base_params.d_solution_um2_s,
+        'k_p_s_inv': base_params.k_p_s_inv,
+        'k_d_ds_s_inv': base_params.k_d_ds_s_inv,
+        'k_d_ss_s_inv': base_params.k_d_ss_s_inv,
+        'k_slow_M_inv_s_inv': base_params.k_slow_M_inv_s_inv,
+        'k_fast_M_inv_s_inv': base_params.k_fast_M_inv_s_inv,
+        'sender_switch_nM': base_params.sender_switch_nM,
+        'receiver_switch_nM': base_params.receiver_switch_nM,
+        'threshold_uM': base_params.threshold_uM,
     }
-
-
-def build_equations(vars_by_name, params: SenderReceiverParams):
-    s2 = vars_by_name["S2"]
-    i2 = vars_by_name["I2"]
-    s2_i2 = vars_by_name["S2_I2"]
-    th2 = vars_by_name["Th2"]
-    s2_th2 = vars_by_name["S2_Th2"]
-    i1o2 = vars_by_name["I1O2"]
-    diffusion = vars_by_name["D"]
-
-    eq_s2 = (
-        TransientTerm(var=s2)
-        == DiffusionTerm(coeff=diffusion, var=s2)
-        + params.k_p_s_inv * i1o2
-        - ImplicitSourceTerm(
-            coeff=(
-                params.k_slow_M_inv_s_inv * i2
-                + params.k_fast_M_inv_s_inv * th2
-                + params.k_d_ss_s_inv
-            ),
-            var=s2,
-        )
-    )
-
-    eq_i2 = (
-        TransientTerm(var=i2)
-        == params.k_d_ds_s_inv * s2_i2
-        - ImplicitSourceTerm(coeff=params.k_slow_M_inv_s_inv * s2, var=i2)
-    )
-
-    eq_th2 = (
-        TransientTerm(var=th2)
-        == params.k_d_ds_s_inv * s2_th2
-        - ImplicitSourceTerm(coeff=params.k_fast_M_inv_s_inv * s2, var=th2)
-    )
-
-    eq_s2_i2 = (
-        TransientTerm(var=s2_i2)
-        == params.k_slow_M_inv_s_inv * i2 * s2
-        - ImplicitSourceTerm(coeff=params.k_d_ds_s_inv, var=s2_i2)
-    )
-
-    eq_s2_th2 = (
-        TransientTerm(var=s2_th2)
-        == params.k_fast_M_inv_s_inv * th2 * s2
-        - ImplicitSourceTerm(coeff=params.k_d_ds_s_inv, var=s2_th2)
-    )
-
-    return {
-        "S2": eq_s2,
-        "I2": eq_i2,
-        "Th2": eq_th2,
-        "S2_I2": eq_s2_i2,
-        "S2_Th2": eq_s2_th2,
-    }
-
-
-def clip_nonnegative(vars_by_name):
-    for name in ("S2", "I2", "S2_I2", "Th2", "S2_Th2"):
-        var = vars_by_name[name]
-        var.setValue(np.maximum(np.asarray(var.value), 0.0))
-
-
-def mean_in_mask(var: CellVariable, mask: np.ndarray) -> float:
-    values = np.asarray(var.value)
-    return float(values[mask].mean())
-
-
-def mean_in_domain(var: CellVariable) -> float:
-    values = np.asarray(var.value)
-    return float(values.mean())
-
-
-def simulate_sender_receiver(params: SenderReceiverParams, verbose: bool = True):
+    params_dict[sweep_param] = sweep_value
+    params = SenderReceiverParams(**params_dict)
     params.validate()
+
+    # DEBUG: Print actual parameters being used
+    if sweep_param == 'center_distance_um' and sweep_value == 1500.0:
+        print(f"\n=== DEBUG: Parameters for distance=1500 ===")
+        print(f"node_length_um: {params.node_length_um}")
+        print(f"center_distance_um: {params.center_distance_um}")
+        print(f"bath_margin_um: {params.bath_margin_um}")
+        print(f"total_hours: {params.total_hours}")
+        print(f"dt_s: {params.dt_s}")
+        print(f"sender_switch_nM: {params.sender_switch_nM}")
+        print(f"receiver_switch_nM: {params.receiver_switch_nM}")
+        print(f"threshold_uM: {params.threshold_uM}")
+        print(f"k_p_s_inv: {params.k_p_s_inv}")
+        print(f"d_gel_um2_s: {params.d_gel_um2_s}")
+        print(f"d_solution_um2_s: {params.d_solution_um2_s}")
+        print("=" * 50 + "\n")
+
+    # Extract simulation config
+    check_interval = sim_config['check_interval']
+    save_interval = sim_config['save_interval']
+    abs_threshold = sim_config['abs_threshold']
+    progress_interval_s = sim_config['progress_interval_s']
+
+    # Build geometry (sharp square boundaries)
     mesh, nx, ny, sender_mask, receiver_mask = build_geometry(params)
+
+    # Initialize variables (sharp square initialization)
     vars_by_name = initialize_variables(mesh, sender_mask, receiver_mask, params)
+
+    # DEBUG: Check initial conditions
+    if sweep_param == 'center_distance_um' and sweep_value == 1500.0:
+        initial_i2 = mean_in_mask(vars_by_name["I2"], receiver_mask) / NANOMOLAR
+        print(f"Initial I2 in receiver: {initial_i2:.3f} nM")
+        initial_th2 = mean_in_mask(vars_by_name["Th2"], receiver_mask) / MICROMOLAR
+        print(f"Initial Th2 in receiver: {initial_th2:.3f} μM")
+        initial_s2 = mean_in_mask(vars_by_name["S2"], receiver_mask) / NANOMOLAR
+        print(f"Initial S2 in receiver: {initial_s2:.3f} nM")
+        sender_i1o2 = mean_in_mask(vars_by_name["I1O2"], sender_mask) / NANOMOLAR
+        print(f"Sender I1O2: {sender_i1o2:.3f} nM")
+        print()
+
+    # Build equations
     eqs = build_equations(vars_by_name, params)
 
+    # Prepare time-series storage (sparse)
     n_steps = int(np.ceil(params.total_hours * 3600.0 / params.dt_s))
-    times_h = np.zeros(n_steps + 1)
+    time_data = []
 
-    receiver_i2_nM = np.zeros(n_steps + 1)
-    receiver_total_rna_nM = np.zeros(n_steps + 1)
-    sender_s2_nM = np.zeros(n_steps + 1)
-    receiver_s2_nM = np.zeros(n_steps + 1)
-    domain_s2_nM = np.zeros(n_steps + 1)
-
-    receiver_i2_nM[0] = mean_in_mask(vars_by_name["I2"], receiver_mask) / NANOMOLAR
-    receiver_total_rna_nM[0] = (
-        mean_in_mask(vars_by_name["S2"], receiver_mask)
-        + mean_in_mask(vars_by_name["S2_I2"], receiver_mask)
-        + mean_in_mask(vars_by_name["S2_Th2"], receiver_mask)
-    ) / NANOMOLAR
-    sender_s2_nM[0] = mean_in_mask(vars_by_name["S2"], sender_mask) / NANOMOLAR
-    receiver_s2_nM[0] = mean_in_mask(vars_by_name["S2"], receiver_mask) / NANOMOLAR
-    domain_s2_nM[0] = mean_in_domain(vars_by_name["S2"]) / NANOMOLAR
-
+    # Variables that evolve in time
     dynamic_vars = (
         vars_by_name["S2"],
         vars_by_name["I2"],
@@ -243,10 +158,39 @@ def simulate_sender_receiver(params: SenderReceiverParams, verbose: bool = True)
         vars_by_name["S2_Th2"],
     )
 
+    # Initial values (save at t=0)
+    time_data.append({
+        'time_s': 0.0,
+        'I2_M': mean_in_mask(vars_by_name["I2"], receiver_mask),
+        'Th2_M': mean_in_mask(vars_by_name["Th2"], receiver_mask),
+        'S2_M': mean_in_mask(vars_by_name["S2"], receiver_mask),
+        'S2_I2_M': mean_in_mask(vars_by_name["S2_I2"], receiver_mask),
+        'S2_Th2_M': mean_in_mask(vars_by_name["S2_Th2"], receiver_mask),
+    })
+
+    # Convergence tracking - track 5 species including S2
+    prev_values = np.array([
+        mean_in_mask(vars_by_name["S2"], receiver_mask),
+        mean_in_mask(vars_by_name["I2"], receiver_mask),
+        mean_in_mask(vars_by_name["S2_I2"], receiver_mask),
+        mean_in_mask(vars_by_name["Th2"], receiver_mask),
+        mean_in_mask(vars_by_name["S2_Th2"], receiver_mask),
+    ])
+    
+    converged = False
+    status = "timeout"
+    last_max_abs_change = np.inf
+
+    start_wall_time = simtime.time()
+    last_progress_time = start_wall_time
+
+    # Time-stepping loop
     for step in range(1, n_steps + 1):
+        # Store old values
         for var in dynamic_vars:
             var.updateOld()
 
+        # Nonlinear iteration loop
         residual = np.inf
         sweep_count = 0
         while residual > params.nonlinear_tolerance and sweep_count < params.max_sweeps_per_step:
@@ -259,241 +203,235 @@ def simulate_sender_receiver(params: SenderReceiverParams, verbose: bool = True)
             clip_nonnegative(vars_by_name)
             sweep_count += 1
 
-        times_h[step] = step * params.dt_s / 3600.0
-        receiver_i2_nM[step] = mean_in_mask(vars_by_name["I2"], receiver_mask) / NANOMOLAR
-        receiver_total_rna_nM[step] = (
-            mean_in_mask(vars_by_name["S2"], receiver_mask)
-            + mean_in_mask(vars_by_name["S2_I2"], receiver_mask)
-            + mean_in_mask(vars_by_name["S2_Th2"], receiver_mask)
-        ) / NANOMOLAR
-        sender_s2_nM[step] = mean_in_mask(vars_by_name["S2"], sender_mask) / NANOMOLAR
-        receiver_s2_nM[step] = mean_in_mask(vars_by_name["S2"], receiver_mask) / NANOMOLAR
-        domain_s2_nM[step] = mean_in_domain(vars_by_name["S2"]) / NANOMOLAR
+        current_time_s = step * params.dt_s
 
-        if verbose and (step == 1 or step % max(1, n_steps // 10) == 0 or step == n_steps):
-            print(
-                f"step {step:4d}/{n_steps} | t = {times_h[step]:5.2f} h | "
-                f"receiver I2 = {receiver_i2_nM[step]:8.3f} nM | "
-                f"receiver total RNA = {receiver_total_rna_nM[step]:8.3f} nM | "
-                f"sender S2 = {sender_s2_nM[step]:8.3f} nM | "
-                f"receiver S2 = {receiver_s2_nM[step]:8.3f} nM | "
-                f"domain S2 = {domain_s2_nM[step]:8.3f} nM | "
-                f"sweeps = {sweep_count:2d} | residual = {residual:.3e}"
-            )
+        # Save data at specified intervals
+        if step % save_interval == 0:
+            time_data.append({
+                'time_s': current_time_s,
+                'I2_M': mean_in_mask(vars_by_name["I2"], receiver_mask),
+                'Th2_M': mean_in_mask(vars_by_name["Th2"], receiver_mask),
+                'S2_M': mean_in_mask(vars_by_name["S2"], receiver_mask),
+                'S2_I2_M': mean_in_mask(vars_by_name["S2_I2"], receiver_mask),
+                'S2_Th2_M': mean_in_mask(vars_by_name["S2_Th2"], receiver_mask),
+            })
 
-    return {
-        "params": params,
-        "mesh": mesh,
-        "nx": nx,
-        "ny": ny,
-        "sender_mask": sender_mask,
-        "receiver_mask": receiver_mask,
-        "vars": vars_by_name,
-        "times_h": times_h,
-        "receiver_i2_nM": receiver_i2_nM,
-        "receiver_total_rna_nM": receiver_total_rna_nM,
-        "sender_s2_nM": sender_s2_nM,
-        "receiver_s2_nM": receiver_s2_nM,
-        "domain_s2_nM": domain_s2_nM,
+        # Check convergence at specified intervals
+        if step % check_interval == 0:
+            current_values = np.array([
+                mean_in_mask(vars_by_name["S2"], receiver_mask),
+                mean_in_mask(vars_by_name["I2"], receiver_mask),
+                mean_in_mask(vars_by_name["S2_I2"], receiver_mask),
+                mean_in_mask(vars_by_name["Th2"], receiver_mask),
+                mean_in_mask(vars_by_name["S2_Th2"], receiver_mask),
+            ])
+            abs_changes = np.abs(current_values - prev_values)
+            max_abs_change = np.max(abs_changes)
+            last_max_abs_change = max_abs_change
+
+            if max_abs_change < abs_threshold:
+                converged = True
+                status = "converged"
+                # Save final point before breaking
+                if step % save_interval != 0:
+                    time_data.append({
+                        'time_s': current_time_s,
+                        'I2_M': current_values[1],
+                        'Th2_M': current_values[3],
+                        'S2_M': current_values[0],
+                        'S2_I2_M': current_values[2],
+                        'S2_Th2_M': current_values[4],
+                    })
+                break
+
+            prev_values = current_values.copy()
+
+        # Progress output based on wall-clock time
+        current_wall_time = simtime.time()
+        if current_wall_time - last_progress_time >= progress_interval_s:
+            elapsed_wall = current_wall_time - start_wall_time
+            sim_hours = current_time_s / 3600
+            print(f"  [{sweep_param}={sweep_value:.3e}] t={sim_hours:.2f}h, "
+                  f"wall={elapsed_wall:.1f}s, max_Δ={last_max_abs_change:.2e}M")
+            last_progress_time = current_wall_time
+
+    end_wall_time = simtime.time()
+    wall_time_s = end_wall_time - start_wall_time
+    sim_time_to_ss_h = current_time_s / 3600
+
+    # Get final values
+    final_values = {
+        'S2_M': mean_in_mask(vars_by_name["S2"], receiver_mask),
+        'I2_M': mean_in_mask(vars_by_name["I2"], receiver_mask),
+        'Th2_M': mean_in_mask(vars_by_name["Th2"], receiver_mask),
+        'S2_I2_M': mean_in_mask(vars_by_name["S2_I2"], receiver_mask),
+        'S2_Th2_M': mean_in_mask(vars_by_name["S2_Th2"], receiver_mask),
     }
 
+    # DEBUG: Print final values for 1500 um
+    if sweep_param == 'center_distance_um' and sweep_value == 1500.0:
+        print(f"\n=== DEBUG: Final values for distance=1500 ===")
+        print(f"Final I2: {final_values['I2_M']/NANOMOLAR:.3f} nM")
+        print(f"Final Th2: {final_values['Th2_M']/MICROMOLAR:.3f} μM")
+        print(f"Final S2: {final_values['S2_M']/NANOMOLAR:.3f} nM")
+        print(f"Converged: {converged}, Status: {status}")
+        print(f"Sim time to SS: {sim_time_to_ss_h:.2f} hours")
+        print("=" * 50 + "\n")
 
-def field_to_image(values: np.ndarray, nx: int, ny: int) -> np.ndarray:
-    return np.asarray(values).reshape((nx, ny), order="F").T
+    # Save time series to CSV
+    csv_filename = f"timeseries_{sweep_param}_{sweep_value:.6e}.csv"
+    csv_path = OUTPUT_DIR / csv_filename
 
+    df = pd.DataFrame(time_data)
+    df.to_csv(csv_path, index=False)
 
-def save_kinetics_plot(result, output_path: Path):
-    params = result["params"]
-    times_h = result["times_h"]
+    # Return result summary
+    result = {
+        sweep_param: sweep_value,
+        'converged': converged,
+        'status': status,
+        'sim_time_to_ss_h': sim_time_to_ss_h,
+        'wall_time_s': wall_time_s,
+        'final_S2_M': final_values['S2_M'],
+        'final_I2_M': final_values['I2_M'],
+        'final_Th2_M': final_values['Th2_M'],
+        'final_S2_I2_M': final_values['S2_I2_M'],
+        'final_S2_Th2_M': final_values['S2_Th2_M'],
+        'final_abs_change_M': last_max_abs_change,
+        'csv_file': csv_filename
+    }
 
-    fig, axes = plt.subplots(2, 1, figsize=(7, 7), sharex=True)
-
-    axes[0].plot(times_h, result["receiver_i2_nM"], color="#0c5da5", lw=2.5)
-    axes[0].set_ylabel("Receiver I2 (nM)")
-    axes[0].set_title(
-        f"Sender/Receiver kinetics | distance = {params.center_distance_um:.0f} um, "
-        f"Th2 = {params.threshold_uM:.2f} uM"
-    )
-    axes[0].grid(alpha=0.25)
-
-    axes[1].plot(times_h, result["receiver_total_rna_nM"], color="#b54e00", lw=2.5)
-    axes[1].set_xlabel("Time (h)")
-    axes[1].set_ylabel("Receiver total RNA (nM)")
-    axes[1].grid(alpha=0.25)
-
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=200)
-    plt.close(fig)
-
-
-def save_diagnostic_plot(result, output_path: Path):
-    params = result["params"]
-    times_h = result["times_h"]
-
-    fig, axes = plt.subplots(4, 1, figsize=(8, 10), sharex=True)
-
-    axes[0].plot(times_h, result["receiver_i2_nM"], lw=2, color="#0c5da5")
-    axes[0].set_ylabel("Receiver I2 (nM)")
-    axes[0].grid(alpha=0.25)
-
-    axes[1].plot(times_h, result["receiver_total_rna_nM"], lw=2, color="#b54e00")
-    axes[1].set_ylabel("Receiver total RNA (nM)")
-    axes[1].grid(alpha=0.25)
-
-    axes[2].plot(times_h, result["sender_s2_nM"], lw=2, color="#6a0dad")
-    axes[2].set_ylabel("Sender S2 (nM)")
-    axes[2].grid(alpha=0.25)
-
-    axes[3].plot(times_h, result["receiver_s2_nM"], lw=2, label="Receiver S2")
-    axes[3].plot(times_h, result["domain_s2_nM"], lw=2, label="Domain-mean S2")
-    axes[3].set_ylabel("S2 concentration (nM)")
-    axes[3].set_xlabel("Time (h)")
-    axes[3].legend()
-    axes[3].grid(alpha=0.25)
-
-    fig.suptitle(
-        f"Diagnostics | distance = {params.center_distance_um:.0f} um, "
-        f"Th2 = {params.threshold_uM:.2f} uM",
-        y=0.995
-    )
-    fig.tight_layout()
-    fig.savefig(output_path, dpi=200)
-    plt.close(fig)
+    return result
 
 
-def save_field_plot(result, output_path: Path):
-    nx = result["nx"]
-    ny = result["ny"]
-    vars_by_name = result["vars"]
-    receiver_mask = result["receiver_mask"]
+def format_summary(results_df, sweep_param):
+    """
+    Convert results dataframe to human-readable units (nM, μM, hours).
+    """
+    summary_df = results_df.copy()
 
-    s2 = field_to_image(np.asarray(vars_by_name["S2"].value) / NANOMOLAR, nx, ny)
-    i2 = field_to_image(np.asarray(vars_by_name["I2"].value) / NANOMOLAR, nx, ny)
-    total_rna = field_to_image(
-        (
-            np.asarray(vars_by_name["S2"].value)
-            + np.asarray(vars_by_name["S2_I2"].value)
-            + np.asarray(vars_by_name["S2_Th2"].value)
-        )
-        / NANOMOLAR,
-        nx,
-        ny,
-    )
-    receiver_outline = field_to_image(receiver_mask.astype(float), nx, ny)
+    # Convert final concentrations to nM
+    for col in ['final_S2_M', 'final_I2_M', 'final_Th2_M', 'final_S2_I2_M', 'final_S2_Th2_M']:
+        if col in summary_df.columns:
+            summary_df[col.replace('_M', '_nM')] = summary_df[col] * 1e9
+            summary_df = summary_df.drop(columns=[col])
 
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4.5), constrained_layout=True)
-    datasets = (
-        (s2, "Free S2 (nM)"),
-        (i2, "I2 (nM)"),
-        (total_rna, "Total RNA (nM)"),
-    )
+    if 'final_abs_change_M' in summary_df.columns:
+        summary_df['final_abs_change_nM'] = summary_df['final_abs_change_M'] * 1e9
+        summary_df = summary_df.drop(columns=['final_abs_change_M'])
 
-    for ax, (data, title) in zip(axes, datasets):
-        im = ax.imshow(data, origin="lower", cmap="viridis")
-        ax.contour(receiver_outline, levels=[0.5], colors="white", linewidths=0.8)
-        ax.set_title(title)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        fig.colorbar(im, ax=ax, fraction=0.045, pad=0.02)
-
-    fig.savefig(output_path, dpi=200)
-    plt.close(fig)
+    return summary_df
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--preset", choices=["comsol-2-1"], default=None)
-    parser.add_argument("--distance-um", type=float, default=300.0)
-    parser.add_argument("--node-length-um", type=float, default=50.0)
-    parser.add_argument("--bath-margin-um", type=float, default=250.0)
-    parser.add_argument("--dx-um", type=float, default=10.0)
-    parser.add_argument("--hours", type=float, default=8.0)
-    parser.add_argument("--dt-s", type=float, default=60.0)
-    parser.add_argument("--threshold-uM", type=float, default=5.0)
-    parser.add_argument("--sender-switch-nM", type=float, default=100.0)
-    parser.add_argument("--receiver-switch-nM", type=float, default=100.0)
-    parser.add_argument(
-        "--sweep-distances-um",
-        type=float,
-        nargs="*",
-        default=None,
-        help="Optional distance sweep. If provided, the script also saves a distance-response curve.",
-    )
-    parser.add_argument(
-        "--output-prefix",
-        type=Path,
-        default=Path("reaction_diffusion_models/sender_receiver"),
-    )
-    parser.add_argument("--quiet", action="store_true")
-    return parser.parse_args()
+def run_parameter_sweep(sweep_param: str, sweep_values: list, output_dir: Path, 
+                        base_params: SenderReceiverParams, sim_config: dict):
+    """
+    Run parameter sweep in parallel and save results.
+
+    Parameters:
+    -----------
+    sweep_param : str
+        Name of parameter to sweep
+    sweep_values : list
+        Values to test
+    output_dir : Path
+        Directory to save results
+    base_params : SenderReceiverParams
+        Base parameter set
+    sim_config : dict
+        Simulation control parameters
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Clean up old output files
+    print("Cleaning up old output files...")
+    for pattern in ['timeseries_*.csv', 'summary.csv', 'steady_state_values.csv']:
+        for f in glob.glob(str(output_dir / pattern)):
+            os.remove(f)
+            print(f"  Deleted: {f}")
+
+    print("="*80)
+    print(f"PARAMETER SWEEP: {sweep_param}")
+    print(f"Values: {sweep_values}")
+    print(f"Number of simulations: {len(sweep_values)}")
+    print(f"Convergence threshold: {sim_config['abs_threshold']*1e9:.1f} nM")
+    print(f"Max simulation time: {base_params.total_hours} hours")
+    print("="*80)
+    print()
+
+    # Prepare simulation arguments
+    sim_args = []
+    for sweep_value in sweep_values:
+        sim_args.append((sweep_value, base_params, sweep_param, sim_config))
+
+    # Run simulations in parallel
+    num_processes = max(1, cpu_count() - 2)
+    print(f"Running with {num_processes} processes")
+    print()
+
+    start_time = simtime.time()
+    
+    with Pool(num_processes) as pool:
+        results = pool.map(run_simulation, sim_args)
+
+    total_time = simtime.time() - start_time
+
+    # Save results
+    results_df = pd.DataFrame(results)
+
+    # Save detailed steady state values (SI units)
+    steady_state_path = output_dir / 'steady_state_values.csv'
+    results_df.to_csv(steady_state_path, index=False)
+
+    # Create summary CSV with convenient units
+    summary_df = format_summary(results_df, sweep_param)
+    summary_path = output_dir / 'summary.csv'
+    summary_df.to_csv(summary_path, index=False)
+
+    print()
+    print("="*80)
+    print("SIMULATION COMPLETE")
+    print("="*80)
+    print(f"\nTotal wall time: {total_time:.1f} seconds ({total_time/60:.1f} minutes)")
+    print(f"\nResults saved to:")
+    print(f"  - {summary_path} (convenient units)")
+    print(f"  - {steady_state_path} (SI units)")
+    print(f"  - timeseries_*.csv (time course data)")
+    print(f"\nConverged: {summary_df['converged'].sum()} / {len(summary_df)}")
+    
+    if 'status' in summary_df.columns:
+        print(f"\nStatus summary:")
+        print(summary_df['status'].value_counts().to_string())
 
 
 def main():
-    args = parse_args()
-    params = SenderReceiverParams(
-        node_length_um=args.node_length_um,
-        center_distance_um=args.distance_um,
-        bath_margin_um=args.bath_margin_um,
-        dx_um=args.dx_um,
-        total_hours=args.hours,
-        dt_s=args.dt_s,
-        sender_switch_nM=args.sender_switch_nM,
-        receiver_switch_nM=args.receiver_switch_nM,
-        threshold_uM=args.threshold_uM,
+    """Main execution function."""
+    base_params = SenderReceiverParams()
+    
+    # DEBUG: Print base parameters
+    print("\n=== BASE PARAMETERS ===")
+    print(f"node_length_um: {base_params.node_length_um}")
+    print(f"center_distance_um: {base_params.center_distance_um}")
+    print(f"bath_margin_um: {base_params.bath_margin_um}")
+    print(f"total_hours: {base_params.total_hours}")
+    print(f"dt_s: {base_params.dt_s}")
+    print(f"sender_switch_nM: {base_params.sender_switch_nM}")
+    print(f"receiver_switch_nM: {base_params.receiver_switch_nM}")
+    print(f"threshold_uM: {base_params.threshold_uM}")
+    print(f"k_p_s_inv: {base_params.k_p_s_inv}")
+    print("=" * 50 + "\n")
+    
+    run_parameter_sweep(
+        SWEEP_PARAMETER, 
+        SWEEP_VALUES, 
+        OUTPUT_DIR, 
+        base_params,
+        SIM_CONFIG
     )
-    params = apply_preset(params, args.preset)
-
-    args.output_prefix.parent.mkdir(parents=True, exist_ok=True)
-
-    result = simulate_sender_receiver(params, verbose=not args.quiet)
-    save_kinetics_plot(result, args.output_prefix.with_name(args.output_prefix.name + "_kinetics.png"))
-    save_field_plot(result, args.output_prefix.with_name(args.output_prefix.name + "_fields.png"))
-    save_diagnostic_plot(result, args.output_prefix.with_name(args.output_prefix.name + "_diagnostics.png"))
-
-    print(f"Saved kinetics plot to {args.output_prefix.with_name(args.output_prefix.name + '_kinetics.png')}")
-    print(f"Saved field plot to {args.output_prefix.with_name(args.output_prefix.name + '_fields.png')}")
-    print(f"Saved diagnostic plot to {args.output_prefix.with_name(args.output_prefix.name + '_diagnostics.png')}")
-
-    if args.sweep_distances_um:
-        final_i2 = []
-        final_total_rna = []
-        for distance_um in args.sweep_distances_um:
-            sweep_params = SenderReceiverParams(
-                node_length_um=args.node_length_um,
-                center_distance_um=distance_um,
-                bath_margin_um=args.bath_margin_um,
-                dx_um=args.dx_um,
-                total_hours=args.hours,
-                dt_s=args.dt_s,
-                sender_switch_nM=args.sender_switch_nM,
-                receiver_switch_nM=args.receiver_switch_nM,
-                threshold_uM=args.threshold_uM,
-            )
-            sweep_result = simulate_sender_receiver(sweep_params, verbose=False)
-            final_i2.append(sweep_result["receiver_i2_nM"][-1])
-            final_total_rna.append(sweep_result["receiver_total_rna_nM"][-1])
-
-        sweep_plot = args.output_prefix.with_name(args.output_prefix.name + "_distance_sweep.png")
-        fig, axes = plt.subplots(2, 1, figsize=(7, 7), sharex=True)
-
-        axes[0].plot(args.sweep_distances_um, final_i2, marker="o", color="#0c5da5", lw=2)
-        axes[0].set_ylabel("Steady-state receiver I2 (nM)")
-        axes[0].grid(alpha=0.25)
-
-        axes[1].plot(args.sweep_distances_um, final_total_rna, marker="o", color="#b54e00", lw=2)
-        axes[1].set_xlabel("Sender/receiver center distance (um)")
-        axes[1].set_ylabel("Steady-state receiver total RNA (nM)")
-        axes[1].grid(alpha=0.25)
-
-        fig.tight_layout()
-        fig.savefig(sweep_plot, dpi=200)
-        plt.close(fig)
-
-        print(f"Saved distance-response plot to {sweep_plot}")
 
 
 if __name__ == "__main__":
     start_time = simtime.perf_counter()
     main()
     end_time = simtime.perf_counter()
-    print(f"\ntotal sim time: {end_time - start_time:.2f} seconds")
+    print(f"\nTotal execution time: {end_time - start_time:.2f} seconds")
