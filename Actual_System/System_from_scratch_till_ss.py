@@ -5,7 +5,7 @@ WITH ADAPTIVE STEADY-STATE DETECTION AND CONVERGENCE STUDY
 
 import numpy as np
 import matplotlib.pyplot as plt
-from fipy import CellVariable, Grid1D, TransientTerm, DiffusionTerm, ImplicitSourceTerm
+from fipy import CellVariable, Grid2D, TransientTerm, DiffusionTerm, ImplicitSourceTerm
 from fipy.tools import numerix
 import time as timer
 
@@ -27,12 +27,12 @@ k_fast = 1e6 * 1e-6 # 7bp toehold (converted to μM⁻¹s⁻¹)
 # Initial concentrations (μM)
 I1O2_init = 0.1     # 100 nM sender switch
 I2_init = 0.1       # 100 nM receiver switch
-Th2_init = 0.005    # 5 μM threshold
+Th2_init = 5    # 5 μM threshold
 
 # Geometry (μm)
 node_size = 50.0
 distance_between = 300.0
-total_length = 2000.0
+total_length = 5000
 
 # Time parameters
 dt_initial = 1.0    # Start with 1 second timestep (we'll test this)
@@ -76,7 +76,7 @@ def run_simulation(dt, max_time=max_time, check_steady_state=True, verbose=True)
     
     nx = 400
     dx = total_length / nx
-    mesh = Grid1D(nx=nx, dx=dx)
+    mesh = Grid2D(nx=nx, dx=dx)
     x = mesh.cellCenters[0]
     
     # Define node regions
@@ -239,7 +239,7 @@ def run_simulation(dt, max_time=max_time, check_steady_state=True, verbose=True)
                         print(f"{'='*70}\n")
                     break
     
-    elapsed_time = timer.time() - start_time
+    elapsed_time = (timer.time() - start_time)/3600
     
     if verbose:
         if not converged_to_ss:
@@ -270,6 +270,7 @@ print("="*70)
 
 # Run with initial timestep
 results = run_simulation(dt=dt_initial, check_steady_state=True, verbose=True)
+
 
 # =============================================================================
 # PLOTTING PART 1 RESULTS
@@ -302,7 +303,8 @@ axes[2].set_title('Total S2 (Free + Bound) at Receiver', fontsize=14)
 axes[2].grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('main_simulation_results.png', dpi=300, bbox_inches='tight')
+plt.savefig('Chen25sys5000x5000_ccd=300.png', dpi=300, bbox_inches='tight')
 print("Main results saved as 'main_simulation_results.png'")
 plt.show()
 
+print(f"the total runtime for Chen 25 5000x5000 system is = {results['runtime']:.2f} hours")
