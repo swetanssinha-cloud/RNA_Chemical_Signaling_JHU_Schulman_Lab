@@ -1,3 +1,9 @@
+# =============================================================================
+# PART 2: CONVERGENCE STUDY
+# =============================================================================
+
+
+
 """
 Tethered Genelet Reaction-Diffusion Model using FiPy
 WITH ADAPTIVE STEADY-STATE DETECTION AND CONVERGENCE STUDY
@@ -5,7 +11,7 @@ WITH ADAPTIVE STEADY-STATE DETECTION AND CONVERGENCE STUDY
 
 import numpy as np
 import matplotlib.pyplot as plt
-from fipy import CellVariable, Grid2D, TransientTerm, DiffusionTerm, ImplicitSourceTerm
+from fipy import CellVariable, Grid1D, TransientTerm, DiffusionTerm, ImplicitSourceTerm
 from fipy.tools import numerix
 import time as timer
 
@@ -27,12 +33,12 @@ k_fast = 1e6 * 1e-6 # 7bp toehold (converted to μM⁻¹s⁻¹)
 # Initial concentrations (μM)
 I1O2_init = 0.1     # 100 nM sender switch
 I2_init = 0.1       # 100 nM receiver switch
-Th2_init = 5    # 5 μM threshold
+Th2_init = 0.005    # 5 μM threshold
 
 # Geometry (μm)
 node_size = 50.0
 distance_between = 300.0
-total_length = 5000
+total_length = 2000.0
 
 # Time parameters
 dt_initial = 1.0    # Start with 1 second timestep (we'll test this)
@@ -76,7 +82,7 @@ def run_simulation(dt, max_time=max_time, check_steady_state=True, verbose=True)
     
     nx = 400
     dx = total_length / nx
-    mesh = Grid2D(nx=nx, dx=dx)
+    mesh = Grid1D(nx=nx, dx=dx)
     x = mesh.cellCenters[0]
     
     # Define node regions
@@ -239,7 +245,7 @@ def run_simulation(dt, max_time=max_time, check_steady_state=True, verbose=True)
                         print(f"{'='*70}\n")
                     break
     
-    elapsed_time = (timer.time() - start_time)/3600
+    elapsed_time = timer.time() - start_time
     
     if verbose:
         if not converged_to_ss:
@@ -260,51 +266,141 @@ def run_simulation(dt, max_time=max_time, check_steady_state=True, verbose=True)
         'dt': dt
     }
 
+
+
+
+print("\n" + "="*70)
+print("PART 2: CONVERGENCE STUDY")
+print("="*70)
+
+# Test different timesteps
+dt_values = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0]  # seconds
+convergence_results = []
+
+for dt_test in dt_values:
+    print(f"\nTesting dt = {dt_test} s...")
+    result = run_simulation(dt=dt_test, check_steady_state=True, verbose=False)
+    convergence_results.append(result)
+    
+    print(f"  Converged: {result['converged']}")
+    print(f"  Final time: {result['final_time']/3600:.3f} hours")
+    print(f"  Steps: {result['n_steps']}")
+    print(f"  Runtime: {result['runtime']:.2f} s")
+    if len(result['I2']) > 0:
+        print(f"  Final I2: {result['I2'][-1]:.6f} μM")
+
 # =============================================================================
-# PART 1: RUN MAIN SIMULATION WITH ADAPTIVE STOPPING
+# CONVERGENCE ANALYSIS PLOTS
+# =============================================================================
+
+fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+# Plot 1: I2 trajectories for different dt
+ax = axes[0, 0]
+for result in convergence_results:
+    if len(result['time_points']) > 0:
+        ax.plot(result['time_points'], result['I2'], 
+                label=f"dt = {result['dt']} s", linewidth=2, alpha=0.7)
+ax.set_xlabel('Time (hours)', fontsize=11)
+ax.set_ylabel('[I2] (μM)', fontsize=11)
+ax.set_title('I2 Convergence: Effect of Timestep', fontsize=13)
+ax.legend(fontsize=9)
+ax.grid(True, alpha=0.3)
+
+# Plot 2: Final I2 value vs dt
+ax = axes[0, 1]
+final_I2 = [r['I2'][-1] if len(r['I2']) > 0 else np.nan for r in convergence_results]
+dt_vals = [r['dt'] for r in convergence_results]
+ax.plot(dt_vals, final_I2, 'bo-', linewidth=2, markersize=8)
+ax.set_xlabel('Timestep dt (s)', fontsize=11)
+ax.set_ylabel('Final [I2] (μM)', fontsize=11)
+ax.set_title('Steady-State I2 vs Timestep', fontsize=13)
+ax.set_xscale('log')
+ax.grid(True, alpha=0.3)
+
+# Plot 3: Computational efficiency
+ax = axes[1, 0]
+runtimes = [r['runtime'] for r in convergence_results]
+ax.plot(dt_vals, runtimes, 'ro-', linewidth=2, markersize=8)
+ax.set_xlabel('Timestep dt (s)', fontsize=11)
+ax.set_ylabel('Runtime (seconds)', fontsize=11)
+ax.set_title('Computational Cost vs Timestep', fontsize=13)
+ax.set_xscale('log')
+ax.set_yscale('log')
+ax.grid(True, alpha=0.3)
+
+# Plot 4: Relative error vs dt (using smallest dt as reference)
+ax = axes[1, 1]
+if not np.isnan(final_I2[0]):  # If we have a reference solution
+    reference_I2 = final_I2[0]  # Smallest dt is most accurate
+    relative_errors = [abs(I2 - reference_I2) / reference_I2 if not np.isnan(I2) else np.nan 
+                       for I2 in final_I2]
+    ax.loglog(dt_vals, relative_errors, 'go-', linewidth=2, markersize=8, label='Relative error')
+    
+    # Add reference lines for convergence order
+    dt_array = np.array(dt_vals)
+    ax.loglog(dt_array, 0.01 * dt_array/dt_array[0], 'k--', alpha=0.5, label='1st order')
+    ax.loglog(dt_array, 0.01 * (dt_array/dt_array[0])**2, 'k:', alpha=0.5, label='2nd order')
+    
+    ax.set_xlabel('Timestep dt (s)', fontsize=11)
+    ax.set_ylabel('Relative Error', fontsize=11)
+    ax.set_title('Convergence Order Analysis', fontsize=13)
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig('convergence_study.png', dpi=300, bbox_inches='tight')
+print("\nConvergence study saved as 'convergence_study.png'")
+plt.show()
+
+# =============================================================================
+# CONVERGENCE SUMMARY TABLE
 # =============================================================================
 
 print("\n" + "="*70)
-print("PART 1: MAIN SIMULATION WITH STEADY-STATE DETECTION")
+print("CONVERGENCE STUDY SUMMARY")
+print("="*70)
+print(f"{'dt (s)':<10} {'Steps':<10} {'Time (hr)':<12} {'Final I2':<12} {'Runtime (s)':<12} {'Converged'}")
+print("-"*70)
+for result in convergence_results:
+    final_I2_val = result['I2'][-1] if len(result['I2']) > 0 else float('nan')
+    print(f"{result['dt']:<10.1f} {result['n_steps']:<10} "
+          f"{result['final_time']/3600:<12.3f} {final_I2_val:<12.6f} "
+          f"{result['runtime']:<12.2f} {result['converged']}")
 print("="*70)
 
-# Run with initial timestep
-results = run_simulation(dt=dt_initial, check_steady_state=True, verbose=True)
+# Recommend optimal timestep
+print("\nRECOMMENDATIONS:")
+print("-"*70)
 
+# Find timesteps that converged
+converged_results = [r for r in convergence_results if r['converged'] and len(r['I2']) > 0]
 
-# =============================================================================
-# PLOTTING PART 1 RESULTS
-# =============================================================================
+if converged_results:
+    # Sort by runtime
+    converged_results.sort(key=lambda x: x['runtime'])
+    
+    optimal = converged_results[0]
+    print(f"✓ Optimal timestep: dt = {optimal['dt']} s")
+    print(f"  - Reaches steady state in {optimal['final_time']/3600:.2f} hours")
+    print(f"  - Computation time: {optimal['runtime']:.2f} seconds")
+    print(f"  - Final I2 concentration: {optimal['I2'][-1]:.6f} μM")
+    
+    # Check accuracy
+    if len(final_I2) > 1 and not np.isnan(final_I2[0]):
+        relative_diff = abs(optimal['I2'][-1] - final_I2[0]) / final_I2[0]
+        print(f"  - Relative error vs finest grid: {relative_diff:.2e}")
+        
+        if relative_diff < 1e-3:
+            print(f"  ✓ Excellent accuracy (< 0.1% error)")
+        elif relative_diff < 1e-2:
+            print(f"  ✓ Good accuracy (< 1% error)")
+        else:
+            print(f"  ⚠ Consider smaller timestep for better accuracy")
+else:
+    print("⚠ No simulations reached steady state. Consider:")
+    print("  - Increasing max_time")
+    print("  - Relaxing ss_tolerance")
+    print("  - Using smaller timestep")
 
-fig, axes = plt.subplots(3, 1, figsize=(10, 10))
-
-# Plot 1: I2 concentration
-axes[0].plot(results['time_points'], results['I2'], 'b-', linewidth=2)
-axes[0].axhline(y=0.75*I2_init, color='r', linestyle='--', alpha=0.5, label='75% ON')
-axes[0].axhline(y=0.25*I2_init, color='r', linestyle='--', alpha=0.5, label='25% OFF')
-axes[0].set_xlabel('Time (hours)', fontsize=12)
-axes[0].set_ylabel('[I2] (μM)', fontsize=12)
-axes[0].set_title(f'Receiver Switch (I2) - Converged: {results["converged"]}', fontsize=14)
-axes[0].legend()
-axes[0].grid(True, alpha=0.3)
-
-# Plot 2: Free S2
-axes[1].plot(results['time_points'], results['S2_free'], 'g-', linewidth=2)
-axes[1].set_xlabel('Time (hours)', fontsize=12)
-axes[1].set_ylabel('[S2] free (μM)', fontsize=12)
-axes[1].set_title('Free S2 Signal at Receiver', fontsize=14)
-axes[1].grid(True, alpha=0.3)
-
-# Plot 3: Total S2
-axes[2].plot(results['time_points'], results['S2_total'], 'r-', linewidth=2)
-axes[2].set_xlabel('Time (hours)', fontsize=12)
-axes[2].set_ylabel('[S2] total (μM)', fontsize=12)
-axes[2].set_title('Total S2 (Free + Bound) at Receiver', fontsize=14)
-axes[2].grid(True, alpha=0.3)
-
-plt.tight_layout()
-plt.savefig('Chen25sys5000x5000_ccd=300.png', dpi=300, bbox_inches='tight')
-print("Main results saved as 'main_simulation_results.png'")
-plt.show()
-
-print(f"the total runtime for Chen 25 5000x5000 system is = {results['runtime']:.2f} hours")
+print("="*70 + "\n")

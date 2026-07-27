@@ -74,6 +74,8 @@ def getCurves(fileName):
     plt.tight_layout()
     plt.show()
     
+
+    
     return t, p
 
-getCurves("Single_sender_receiver-200_um.txt")
+getCurves("Single_sender_receiver-1500_um.txt")

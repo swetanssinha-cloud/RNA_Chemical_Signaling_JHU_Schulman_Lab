@@ -6,6 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from fipy import CellVariable, Grid2D, TransientTerm, DiffusionTerm, ImplicitSourceTerm
 from fipy.tools import numerix
+import csv
+import pandas as pd
 
 # =============================================================================
 # PARAMETERS (same as before)
@@ -27,14 +29,14 @@ node_size = 50.0
 node_diameter = 75
 node_radius = node_diameter / 2
 bath_margin = 250
-distance_between = 200  # Test at large distance
+distance_between = 1500 # Test at large distance
 total_width = 2500.0  # Larger domain for 2D
 total_height = node_size + 2 * bath_margin
 
 total_height = 1e3
 total_width = 1e4 #first doing Chloe's System
 
-dt = 10.0
+dt = 30.0
 total_time = 8 * 3600
 n_steps = int(total_time / dt)
 save_interval_time = 60.0
@@ -50,11 +52,14 @@ save_interval_steps = int(save_interval_time / dt)
 # dx = total_width / nx
 # dy = total_height / ny
 
-dx = 20
+dx = 40
 dy = dx
 
 nx = total_width // dx
 ny = total_height // dy
+
+nx = int(total_width // dx)  # = 500 (integer)
+ny = int(total_height // dy)  # = 50 (integer)
 
 mesh = Grid2D(nx=nx, ny=ny, dx=dx, dy=dy)
 
@@ -206,6 +211,23 @@ for step in range(n_steps):
 print("\nSimulation complete!")
 
 # =============================================================================
+# SAVE RESULTS TO CSV
+# =============================================================================
+
+print("Saving results to CSV files...")
+
+# Save time series data
+df_timeseries = pd.DataFrame({
+    'Time_hours': time_points,
+    'I2_nM': np.array(I2_concentration) * 1000,
+    'S2_free_nM': np.array(S2_free_concentration) * 1000,
+    'S2_total_nM': np.array(S2_total_concentration) * 1000
+})
+df_timeseries.to_csv(f'timeseries_ccd={distance_between:.0f}um.csv', index=False)
+
+print(f"Time series saved to: timeseries_ccd={distance_between:.0f}um.csv")
+
+# =============================================================================
 # PLOTTING
 # =============================================================================
 
@@ -246,7 +268,7 @@ axes[2].grid(True, alpha=0.3)
 axes[2].set_ylim(bottom=0)
 
 plt.tight_layout()
-plt.savefig(f'2D_model_timeseries_ccd={distance_between:.0f}.png', dpi=300, bbox_inches='tight')
+plt.savefig(f'2D_model_timeseries_ccd={distance_between:.0f}_dx={dx:.0f}_dt={dt:.0f}.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # =============================================================================
@@ -299,6 +321,6 @@ axes[1].legend(fontsize=10)
 axes[1].set_ylim(bottom=0)
 
 plt.tight_layout()
-plt.savefig('2D_spatial_profile.png', dpi=300, bbox_inches='tight')
+# plt.savefig('2D_spatial_profile.png', dpi=300, bbox_inches='tight')
 plt.show()
 
