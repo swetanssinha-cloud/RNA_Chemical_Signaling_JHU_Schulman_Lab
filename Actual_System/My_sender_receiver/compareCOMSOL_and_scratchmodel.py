@@ -50,7 +50,7 @@ def load_comsol_data(fileName):
     reporter = p[2]  # rGRep6
     
     # Calculate I2 = Initial reporter - Current reporter
-    initial_reporter = reporter[0]
+    initial_reporter = 100
     I2 = initial_reporter - reporter
     
     # Calculate total S2 = rS6 + rTh + rGRep6
@@ -69,10 +69,11 @@ def load_fipy_data(fileName):
     """
     df = pd.read_csv(fileName)
     
-    time = df['Time_hours'].values
-    I2 = df['I2_nM'].values
-    S2_free = df['S2_free_nM'].values
-    S2_total = df['S2_total_nM'].values
+    # Updated column names to match the actual CSV format
+    time = df['Time (hours)'].values
+    I2 = df['I2 (nM)'].values
+    S2_free = df['S2_free (nM)'].values
+    S2_total = df['S2_total (nM)'].values
     
     return time, I2, S2_free, S2_total
 
@@ -106,7 +107,7 @@ print("Loading COMSOL data...")
 comsol_time, comsol_I2, comsol_S2_free, comsol_S2_total = load_comsol_data('Single_sender_receiver-1500_um.txt')
 
 print("Loading FiPy data...")
-fipy_time, fipy_I2, fipy_S2_free, fipy_S2_total = load_fipy_data('timeseries_ccd=1500um.csv')
+fipy_time, fipy_I2, fipy_S2_free, fipy_S2_total = load_fipy_data('adaptive_mesh_timeseries_ccd=1500_dt=30.csv')
 
 print(f"COMSOL: {len(comsol_time)} points, time range: {comsol_time[0]:.2f} - {comsol_time[-1]:.2f} hr")
 print(f"FiPy: {len(fipy_time)} points, time range: {fipy_time[0]:.2f} - {fipy_time[-1]:.2f} hr")
@@ -281,3 +282,4 @@ df_diff.to_csv('comparison_differences.csv', index=False)
 print("\nDifference data saved to: comparison_differences.csv")
 
 print("\nAnalysis complete!")
+

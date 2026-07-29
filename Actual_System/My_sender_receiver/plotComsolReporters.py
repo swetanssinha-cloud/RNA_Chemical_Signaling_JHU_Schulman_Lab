@@ -65,7 +65,7 @@ def getCurves(fileName):
     
     # Plot 4: [I2] = Initial reporter - Current reporter
     plt.figure(figsize=(5,3))
-    initial_reporter = p[2][0]  # Initial value of rGRep6
+    initial_reporter = 100  # Initial value of rGRep6
     I2 = initial_reporter - p[2]  # Initial minus current
     plt.plot(t, I2, '-', color='red', label="[I2]")
     plt.xlabel("Time (hrs)")
