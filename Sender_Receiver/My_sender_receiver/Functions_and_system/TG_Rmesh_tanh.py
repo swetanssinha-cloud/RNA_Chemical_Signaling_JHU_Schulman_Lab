@@ -34,6 +34,7 @@ bath_margin = 250
 distance_between = 200 # Test at large distance
 total_width = 1e4 #10000 μm = 1 cm
 total_height = 1e3 #1000 μm = 1 mm
+fine_dx = 5
 
 dt = 30.0
 total_time = 8 * 3600
@@ -316,7 +317,7 @@ print()
 
 # Use adaptive transition width based on finest mesh spacing
 # The adaptive mesh has fine_dx = 5.0 μm near nodes
-transition_width = 3.0 * 5.0  # 15 μm (3× finest mesh spacing)
+transition_width = 3.0 * fine_dx  # 15 μm (3× finest mesh spacing)
 
 print(f"Using smooth tanh profiles with transition_width = {transition_width:.1f} μm")
 
@@ -458,6 +459,7 @@ for step in range(n_steps):
             print(f"t = {current_time/3600:.2f} hr: "
                   f"I2 = {I2_val*1000:.2f} nM, "
                   f"S2_total = {S2_total_val*1000:.2f} nM")
+            
 
 print("\nSimulation complete!")
 
@@ -477,8 +479,7 @@ df = pd.DataFrame({
     'Time (hours)': time_points,
     'I2 (nM)': I2_concentration_nM,
     'S2_free (nM)': S2_free_concentration_nM,
-    'S2_total (nM)': S2_total_concentration_nM
-})
+    'S2_total (nM)': S2_total_concentration_nM})
 
 # Save to CSV
 csv_filename = f'adaptive_mesh_timeseries_ccd={distance_between:.0f}_dt={dt:.0f}.csv'
@@ -519,7 +520,7 @@ axes[2].grid(True, alpha=0.3)
 axes[2].set_ylim(bottom=0)
 
 plt.tight_layout()
-plt.savefig(f'adaptive_mesh_timeseries_ccd={distance_between:.0f}_dt={dt:.0f}.png', 
+plt.savefig(f'Sender_receiver_timeseries_ccd={distance_between:.0f}.png', 
             dpi=300, bbox_inches='tight')
 plt.show()
 

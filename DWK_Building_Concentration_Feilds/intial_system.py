@@ -142,7 +142,7 @@ print(f"  r_p = 0 nM/s (outside source)")
 
 # Time stepping parameters
 dt = 1.0  # Time step [s]
-t_final = 3600.0  # Final time [s] - 1 hour
+t_final = 3600.0 * 0.4  # Final time [s] - 0.4 hour
 n_steps = int(t_final / dt)
 
 # Save parameters
@@ -150,19 +150,37 @@ save_interval_time = 60.0  # Save every 60 seconds
 save_interval_steps = int(save_interval_time / dt)
 
 # Storage for analysis
+# Storage for analysis
 time_points = []
 C_center_concentration = []  # Concentration at source center
 C_edge_concentration = []    # Concentration at source edge
 C_far_concentration = []     # Concentration far from source
 
-# Define monitoring points
-center_idx = mesh.numberOfCells // 2  # Approximate center
-edge_distance = R + 5.0  # Just outside source
-far_distance = 3 * R     # 3x source radius away
+# Define monitoring points - CORRECTED
+# Find cell closest to geometric center (distance_from_center already calculated above)
+center_idx = numerix.argmin(distance_from_center)
+
+edge_distance = R + 5.0  # Just outside source (55 µm)
+far_distance = 3 * R     # 3x source radius away (150 µm)
 
 # Find indices for monitoring points
 edge_mask = (numerix.abs(distance_from_center - edge_distance) < L/(2*nx))
 far_mask = (numerix.abs(distance_from_center - far_distance) < L/(2*nx))
+
+# Verify monitoring points
+print("\n" + "="*70)
+print("MONITORING POINTS VERIFICATION")
+print("="*70)
+print(f"Center cell index: {center_idx}")
+print(f"Center coordinates: ({x[center_idx]:.2f}, {y[center_idx]:.2f}) µm")
+print(f"Distance from geometric center: {distance_from_center[center_idx]:.2f} µm")
+print(f"Center is inside source (r<R={R}): {distance_from_center[center_idx] < R}")
+print(f"Number of edge cells (r≈{edge_distance:.0f} µm): {numerix.sum(edge_mask)}")
+print(f"Number of far cells (r≈{far_distance:.0f} µm): {numerix.sum(far_mask)}")
+print("="*70)
+
+
+
 
 print("\n" + "="*70)
 print("STARTING TIME INTEGRATION")
@@ -221,6 +239,7 @@ for step in range(n_steps):
             if rel_change < 1e-4:
                 print(f"\n*** Steady state reached at t = {current_time/3600:.2f} hr ***")
                 print(f"Relative change < 0.01%\n")
+                break
 
 print("\n" + "="*70)
 print("SIMULATION COMPLETE!")

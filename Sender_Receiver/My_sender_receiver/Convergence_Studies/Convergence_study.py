@@ -543,7 +543,7 @@ if __name__ == '__main__':
     print("="*70)
     
     # Test different fine_dx values (spatial convergence)
-    fine_dx_values = [3.0, 5.0, 7.0, 10.0, 15.0, 20.0]  # μm
+    fine_dx_values = [0.25,0.5,0.75,1,3]  # μm
     
     print(f"\nTesting {len(fine_dx_values)} fine_dx values: {fine_dx_values}")
     print(f"Fixed parameters:")

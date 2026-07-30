@@ -25,8 +25,7 @@ SWEEP_PARAMETER = "distance_between"  # Options: "distance_between", "k_p", "k_s
 SWEEP_VALUES = [1000, 1200,1300,1400,1500]  # List of values to sweep
 
 # Number of parallel processes (use None for auto-detect)
-N_PROCESSES = None  # Will use all available CPUs
-
+N_PROCESSES = 4  
 # Number of replicates per parameter value (for error bars)
 N_REPLICATES = 1
 
