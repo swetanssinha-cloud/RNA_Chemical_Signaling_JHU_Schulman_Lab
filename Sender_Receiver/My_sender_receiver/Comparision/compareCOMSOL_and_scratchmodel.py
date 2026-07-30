@@ -104,10 +104,10 @@ def interpolate_to_common_time(t1, data1, t2, data2):
 
 # Load data
 print("Loading COMSOL data...")
-comsol_time, comsol_I2, comsol_S2_free, comsol_S2_total = load_comsol_data('Single_sender_receiver-1500_um.txt')
+comsol_time, comsol_I2, comsol_S2_free, comsol_S2_total = load_comsol_data('Single_sender_receiver-300_um.txt')
 
 print("Loading FiPy data...")
-fipy_time, fipy_I2, fipy_S2_free, fipy_S2_total = load_fipy_data('adaptive_mesh_timeseries_ccd=1500_dt=30.csv')
+fipy_time, fipy_I2, fipy_S2_free, fipy_S2_total = load_fipy_data('adaptive_mesh_timeseries_ccd=300_dt=30.csv')
 
 print(f"COMSOL: {len(comsol_time)} points, time range: {comsol_time[0]:.2f} - {comsol_time[-1]:.2f} hr")
 print(f"FiPy: {len(fipy_time)} points, time range: {fipy_time[0]:.2f} - {fipy_time[-1]:.2f} hr")
@@ -125,7 +125,7 @@ axes[0].axhline(y=75, color='g', linestyle=':', alpha=0.5, linewidth=1, label='7
 axes[0].axhline(y=25, color='orange', linestyle=':', alpha=0.5, linewidth=1, label='25% OFF')
 axes[0].set_xlabel('Time (hours)', fontsize=12)
 axes[0].set_ylabel('[I2] (nM)', fontsize=12)
-axes[0].set_title('I2 Concentration Comparison (distance = 1500 μm)', fontsize=14, fontweight='bold')
+axes[0].set_title('I2 Concentration Comparison (distance = 300 μm)', fontsize=14, fontweight='bold')
 axes[0].legend(loc='best')
 axes[0].grid(True, alpha=0.3)
 axes[0].set_ylim(bottom=0)
@@ -151,7 +151,7 @@ axes[2].grid(True, alpha=0.3)
 axes[2].set_ylim(bottom=0)
 
 plt.tight_layout()
-plt.savefig('comparison_overlay_COMSOL_vs_FiPy.png', dpi=300, bbox_inches='tight')
+plt.savefig('Adaptive_mesh_tanh_nodes_vs_COMSOL_ccd=300um', dpi=300, bbox_inches='tight')
 plt.show()
 
 # =============================================================================
