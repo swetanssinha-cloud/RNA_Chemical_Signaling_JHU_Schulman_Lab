@@ -9,6 +9,8 @@ from fipy.tools import numerix
 import csv
 import pandas as pd
 
+from Functions import calculate_total_amount
+
 # =============================================================================
 # PARAMETERS (same as before)
 # =============================================================================
@@ -29,7 +31,7 @@ node_size = 50.0
 node_diameter = 75
 node_radius = node_diameter / 2
 bath_margin = 250
-distance_between = 1500 # Test at large distance
+distance_between = 200 # Test at large distance
 total_width = 1e4 #10000 μm = 1 cm
 total_height = 1e3 #1000 μm = 1 mm
 
@@ -38,6 +40,69 @@ total_time = 8 * 3600
 n_steps = int(total_time / dt)
 save_interval_time = 60.0
 save_interval_steps = int(save_interval_time / dt)
+
+def smooth_circular_profile(x, y, center_x, center_y, radius, 
+                            value_inside, value_outside, 
+                            transition_width=10.0):
+    """
+    Create smooth circular concentration/diffusion profile using hyperbolic tangent.
+    
+    This replaces sharp boolean masks with smooth transitions to eliminate
+    divide-by-zero errors in gradient calculations.
+    
+    Parameters:
+    -----------
+    x, y : numpy arrays
+        Cell center coordinates from mesh.cellCenters (μm)
+    center_x, center_y : float
+        Center of circular node (μm)
+    radius : float
+        Radius of circular node (μm)
+    value_inside : float
+        Value at center of node (e.g., I2_init=0.1 μM or D_gel=60.0 μm²/s)
+    value_outside : float
+        Value far from node (e.g., 0.0 μM or D_solution=150.0 μm²/s)
+    transition_width : float
+        Width of smooth transition region (μm)
+        Recommended: 2-5× the finest mesh spacing
+        Smaller = sharper transition (more like boolean mask)
+        Larger = smoother transition (more gradual)
+    
+    Returns:
+    --------
+    profile : numpy array
+        Smooth profile values at each cell center
+    
+    Mathematical Form:
+    ------------------
+    profile(r) = U + (H/2) * [tanh(c*(R - r)) + 1]
+    
+    where:
+        r = distance from center = sqrt((x-h)² + (y-k)²)
+        R = radius
+        H = value_inside - value_outside (height)
+        U = value_outside (baseline)
+        c = 1/transition_width (steepness parameter)
+    
+    At r=0 (center):      profile ≈ value_inside
+    At r=R (boundary):    profile ≈ (value_inside + value_outside)/2
+    At r→∞ (far away):    profile ≈ value_outside
+    """
+    # Calculate distance from center
+    distance = np.sqrt((x - center_x)**2 + (y - center_y)**2)
+    
+    # Steepness parameter (larger c = sharper transition)
+    c = 1.0 / transition_width
+    
+    # Height and baseline
+    H = value_inside - value_outside
+    U = value_outside
+    
+    # Hyperbolic tangent profile
+    # tanh(c*(R-r)) varies from +1 at r=0 to -1 as r→∞
+    profile = U + (H / 2.0) * (np.tanh(c * (radius - distance)) + 1.0)
+    
+    return profile
 
 # =============================================================================
 # ADAPTIVE MESH GENERATION FUNCTIONS
@@ -244,37 +309,72 @@ print(f"  Sender at: ({sender_center_x:.0f}, {sender_center_y:.0f})")
 print(f"  Receiver at: ({receiver_center_x:.0f}, {receiver_center_y:.0f})")
 print()
 
-# =============================================================================
-# CREATE NODE MASKS
-# =============================================================================
-
-# Create circular masks for sender and receiver
-sender_mask = (np.sqrt((x - sender_center_x)**2 + (y - sender_center_y)**2) <= node_radius)
-receiver_mask = (np.sqrt((x - receiver_center_x)**2 + (y - receiver_center_y)**2) <= node_radius)
-
-gel_mask = sender_mask | receiver_mask
 
 # =============================================================================
-# CELL VARIABLES (same as before)
+# CREATE SMOOTH CONCENTRATION PROFILES
 # =============================================================================
 
+# Use adaptive transition width based on finest mesh spacing
+# The adaptive mesh has fine_dx = 5.0 μm near nodes
+transition_width = 3.0 * 5.0  # 15 μm (3× finest mesh spacing)
+
+print(f"Using smooth tanh profiles with transition_width = {transition_width:.1f} μm")
+
+
+# =============================================================================
+# CELL VARIABLES WITH SMOOTH INITIAL CONDITIONS
+# =============================================================================
+
+# Create smooth initial concentration profiles
+I2_initial = smooth_circular_profile(x, y, receiver_center_x, receiver_center_y,
+                                     node_radius, I2_init, 0.0, transition_width)
+
+'''Calculate total amount'''
+total_smooth = calculate_total_amount(I2_initial, mesh)
+
+
+receiver_mask_boolean = (np.sqrt((x - receiver_center_x)**2 + 
+                                 (y - receiver_center_y)**2) <= node_radius)
+I2_intial_boolean =np.where(receiver_mask_boolean, I2_init, 0.0)
+total_boolean = calculate_total_amount(I2_intial_boolean, mesh)
+
+correction_factor = total_boolean / total_smooth
+print(f"Smooth profile has {total_smooth/total_boolean*100:.1f}% of boolean total")
+print(f"Correction factor needed: {correction_factor:.3f}")
+
+'''Calculate rest of the values'''
+
+Th2_initial = smooth_circular_profile(x, y, receiver_center_x, receiver_center_y,
+                                      node_radius, Th2_init, 0.0, transition_width)
+
+I1O2_initial = smooth_circular_profile(x, y, sender_center_x, sender_center_y,
+                                       node_radius, I1O2_init, 0.0, transition_width)
+
+# Create smooth diffusion coefficient profile
+# Inside nodes: D_gel (60), Outside nodes: D_solution (150)
+D_sender = smooth_circular_profile(x, y, sender_center_x, sender_center_y,
+                                   node_radius, D_gel, D_solution, transition_width)
+
+D_receiver = smooth_circular_profile(x, y, receiver_center_x, receiver_center_y,
+                                     node_radius, D_gel, D_solution, transition_width)
+
+# Where either node exists, use gel diffusion (take minimum)
+D_combined = np.minimum(D_sender, D_receiver)
+
+# Now create CellVariables with smooth initial values
 S2 = CellVariable(name="S2", mesh=mesh, value=0.0, hasOld=True)
 
-I2 = CellVariable(name="I2", mesh=mesh, value=0.0, hasOld=True)
-I2.setValue(I2_init, where=receiver_mask)
+I2 = CellVariable(name="I2", mesh=mesh, value=I2_initial, hasOld=True)
 
-Th2 = CellVariable(name="Th2", mesh=mesh, value=0.0, hasOld=True)
-Th2.setValue(Th2_init, where=receiver_mask)
+Th2 = CellVariable(name="Th2", mesh=mesh, value=Th2_initial, hasOld=True)
 
 S2_I2 = CellVariable(name="S2_I2", mesh=mesh, value=0.0, hasOld=True)
 S2_Th2 = CellVariable(name="S2_Th2", mesh=mesh, value=0.0, hasOld=True)
 
-I1O2 = CellVariable(name="I1O2", mesh=mesh, value=0.0)
-I1O2.setValue(I1O2_init, where=sender_mask)
+I1O2 = CellVariable(name="I1O2", mesh=mesh, value=I1O2_initial)
 
-# Spatially varying diffusion
-D_S2 = CellVariable(name="D_S2", mesh=mesh, value=D_solution)
-D_S2.setValue(D_gel, where=gel_mask)
+# Smooth spatially varying diffusion coefficient
+D_S2 = CellVariable(name="D_S2", mesh=mesh, value=D_combined)
 
 # =============================================================================
 # EQUATIONS (same as before)
@@ -427,66 +527,66 @@ plt.show()
 # 2D SPATIAL HEATMAP
 # =============================================================================
 
-print("\nGenerating spatial heatmap...")
+# print("\nGenerating spatial heatmap...")
 
-fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-fig.suptitle(f'Adaptive Mesh Spatial Distribution at t={time_points[-1]:.1f} hr', 
-             fontsize=16, fontweight='bold')
+# fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+# fig.suptitle(f'Adaptive Mesh Spatial Distribution at t={time_points[-1]:.1f} hr', 
+#              fontsize=16, fontweight='bold')
 
-# Get S2 values in nM
-S2_values_nM = S2.value * 1000
+# # Get S2 values in nM
+# S2_values_nM = S2.value * 1000
 
-# Plot 1: Scatter plot of S2 concentration (works better with non-uniform mesh)
-x_coords = mesh.cellCenters[0].value
-y_coords = mesh.cellCenters[1].value
+# # Plot 1: Scatter plot of S2 concentration (works better with non-uniform mesh)
+# x_coords = mesh.cellCenters[0].value
+# y_coords = mesh.cellCenters[1].value
 
-scatter = axes[0].scatter(x_coords, y_coords, c=S2_values_nM, 
-                          cmap='viridis', s=1, vmin=0)
-axes[0].set_xlabel('X position (μm)', fontsize=12)
-axes[0].set_ylabel('Y position (μm)', fontsize=12)
-axes[0].set_title(f'S2 Concentration (nM)', fontsize=14, fontweight='bold')
-axes[0].set_aspect('equal')
+# scatter = axes[0].scatter(x_coords, y_coords, c=S2_values_nM, 
+#                           cmap='viridis', s=1, vmin=0)
+# axes[0].set_xlabel('X position (μm)', fontsize=12)
+# axes[0].set_ylabel('Y position (μm)', fontsize=12)
+# axes[0].set_title(f'S2 Concentration (nM)', fontsize=14, fontweight='bold')
+# axes[0].set_aspect('equal')
 
-# Mark nodes with circles
-circle_sender = plt.Circle((sender_center_x, sender_center_y), node_radius, 
-                           fill=False, edgecolor='red', linewidth=2, label='Sender')
-circle_receiver = plt.Circle((receiver_center_x, receiver_center_y), node_radius, 
-                             fill=False, edgecolor='blue', linewidth=2, label='Receiver')
-axes[0].add_patch(circle_sender)
-axes[0].add_patch(circle_receiver)
-axes[0].legend(fontsize=10)
+# # Mark nodes with circles
+# circle_sender = plt.Circle((sender_center_x, sender_center_y), node_radius, 
+#                            fill=False, edgecolor='red', linewidth=2, label='Sender')
+# circle_receiver = plt.Circle((receiver_center_x, receiver_center_y), node_radius, 
+#                              fill=False, edgecolor='blue', linewidth=2, label='Receiver')
+# axes[0].add_patch(circle_sender)
+# axes[0].add_patch(circle_receiver)
+# axes[0].legend(fontsize=10)
 
-cbar1 = plt.colorbar(scatter, ax=axes[0])
-cbar1.set_label('[S2] (nM)', fontsize=11)
+# cbar1 = plt.colorbar(scatter, ax=axes[0])
+# cbar1.set_label('[S2] (nM)', fontsize=11)
 
-# Plot 2: Cross-section along line between nodes
-# Find cells closest to the horizontal line at y = sender_center_y
-y_tolerance = 50  # μm tolerance for selecting cells near the line
-line_mask = np.abs(y_coords - sender_center_y) < y_tolerance
-x_line = x_coords[line_mask]
-S2_line = S2_values_nM[line_mask]
+# # Plot 2: Cross-section along line between nodes
+# # Find cells closest to the horizontal line at y = sender_center_y
+# y_tolerance = 50  # μm tolerance for selecting cells near the line
+# line_mask = np.abs(y_coords - sender_center_y) < y_tolerance
+# x_line = x_coords[line_mask]
+# S2_line = S2_values_nM[line_mask]
 
-# Sort by x coordinate
-sort_idx = np.argsort(x_line)
-x_line_sorted = x_line[sort_idx]
-S2_line_sorted = S2_line[sort_idx]
+# # Sort by x coordinate
+# sort_idx = np.argsort(x_line)
+# x_line_sorted = x_line[sort_idx]
+# S2_line_sorted = S2_line[sort_idx]
 
-axes[1].plot(x_line_sorted, S2_line_sorted, 'b-', linewidth=1, alpha=0.7)
-axes[1].axvline(x=sender_center_x, color='red', linestyle='--', linewidth=2, 
-                alpha=0.7, label='Sender')
-axes[1].axvline(x=receiver_center_x, color='blue', linestyle='--', linewidth=2,
-                alpha=0.7, label='Receiver')
-axes[1].set_xlabel('X position (μm)', fontsize=12)
-axes[1].set_ylabel('[S2] (nM)', fontsize=12)
-axes[1].set_title('S2 Profile Along Line Between Nodes', fontsize=14, fontweight='bold')
-axes[1].grid(True, alpha=0.3)
-axes[1].legend(fontsize=10)
-axes[1].set_ylim(bottom=0)
-axes[1].set_xlim([0, total_width])
+# axes[1].plot(x_line_sorted, S2_line_sorted, 'b-', linewidth=1, alpha=0.7)
+# axes[1].axvline(x=sender_center_x, color='red', linestyle='--', linewidth=2, 
+#                 alpha=0.7, label='Sender')
+# axes[1].axvline(x=receiver_center_x, color='blue', linestyle='--', linewidth=2,
+#                 alpha=0.7, label='Receiver')
+# axes[1].set_xlabel('X position (μm)', fontsize=12)
+# axes[1].set_ylabel('[S2] (nM)', fontsize=12)
+# axes[1].set_title('S2 Profile Along Line Between Nodes', fontsize=14, fontweight='bold')
+# axes[1].grid(True, alpha=0.3)
+# axes[1].legend(fontsize=10)
+# axes[1].set_ylim(bottom=0)
+# axes[1].set_xlim([0, total_width])
 
-plt.tight_layout()
-plt.savefig(f'adaptive_mesh_spatial_ccd={distance_between:.0f}.png', 
-            dpi=300, bbox_inches='tight')
-plt.show()
+# plt.tight_layout()
+# plt.savefig(f'adaptive_mesh_spatial_ccd={distance_between:.0f}.png', 
+#             dpi=300, bbox_inches='tight')
+# plt.show()
 
-print("\nAll plots saved successfully!")
+# print("\nAll plots saved successfully!")

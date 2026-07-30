@@ -88,6 +88,7 @@ print(f"  k = {k} 1/s")
 print(f"  r_p = {r_p_value} nM/s (inside source)")
 print(f"  r_p = 0 nM/s (outside source)")
 
+'''
 # ============================================================================
 # VISUALIZE GEOMETRY
 # ============================================================================
@@ -133,6 +134,7 @@ print(f"  r_p = 0 nM/s (outside source)")
 # print("\nGeometry setup complete!")
 # print(f"Source: circle at ({sender_center_x}, {sender_center_y}) with radius {R} µm")
 # print(f"Domain: {L} x {W} µm²")
+'''
 
 # ============================================================================
 # SOLVER SETUP
