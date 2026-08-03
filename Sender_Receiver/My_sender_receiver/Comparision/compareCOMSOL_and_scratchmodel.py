@@ -9,6 +9,15 @@ import matplotlib.pyplot as plt
 import csv
 from scipy import interpolate
 
+COMSOL_file = 'Single_sender_receiver-1100_um.txt'
+
+python_file = 'timeseries_for_comparision_ccd=1100.csv'
+
+overlay_save_file_name = 'comsol_vs_python_ccd=110um_overlay.png'
+
+difference_file_name = 'comsol_vs_python_ccd=1100um_differences.png'
+
+csv_file_name = 'comsol_vs_python_differences_ccd=1100um_data.csv'
 # =============================================================================
 # LOAD COMSOL DATA (from TXT file)
 # =============================================================================
@@ -104,10 +113,10 @@ def interpolate_to_common_time(t1, data1, t2, data2):
 
 # Load data
 print("Loading COMSOL data...")
-comsol_time, comsol_I2, comsol_S2_free, comsol_S2_total = load_comsol_data('Single_sender_receiver-300_um.txt')
+comsol_time, comsol_I2, comsol_S2_free, comsol_S2_total = load_comsol_data(COMSOL_file)
 
 print("Loading FiPy data...")
-fipy_time, fipy_I2, fipy_S2_free, fipy_S2_total = load_fipy_data('adaptive_mesh_timeseries_ccd=300_dt=30.csv')
+fipy_time, fipy_I2, fipy_S2_free, fipy_S2_total = load_fipy_data(python_file)
 
 print(f"COMSOL: {len(comsol_time)} points, time range: {comsol_time[0]:.2f} - {comsol_time[-1]:.2f} hr")
 print(f"FiPy: {len(fipy_time)} points, time range: {fipy_time[0]:.2f} - {fipy_time[-1]:.2f} hr")
@@ -125,7 +134,7 @@ axes[0].axhline(y=75, color='g', linestyle=':', alpha=0.5, linewidth=1, label='7
 axes[0].axhline(y=25, color='orange', linestyle=':', alpha=0.5, linewidth=1, label='25% OFF')
 axes[0].set_xlabel('Time (hours)', fontsize=12)
 axes[0].set_ylabel('[I2] (nM)', fontsize=12)
-axes[0].set_title('I2 Concentration Comparison (distance = 300 μm)', fontsize=14, fontweight='bold')
+axes[0].set_title('I2 Concentration Comparison (distance = 200 μm)', fontsize=14, fontweight='bold')
 axes[0].legend(loc='best')
 axes[0].grid(True, alpha=0.3)
 axes[0].set_ylim(bottom=0)
@@ -151,7 +160,7 @@ axes[2].grid(True, alpha=0.3)
 axes[2].set_ylim(bottom=0)
 
 plt.tight_layout()
-plt.savefig('Adaptive_mesh_tanh_nodes_vs_COMSOL_ccd=300um', dpi=300, bbox_inches='tight')
+plt.savefig(overlay_save_file_name, dpi=300, bbox_inches='tight')
 plt.show()
 
 # =============================================================================
@@ -175,9 +184,9 @@ diff_S2_free = fipy_S2_free_interp - comsol_S2_free_interp
 diff_S2_total = fipy_S2_total_interp - comsol_S2_total_interp
 
 # Calculate percent differences
-percent_diff_I2 = 100 * diff_I2 / (comsol_I2_interp + 1e-10)  # Avoid division by zero
-percent_diff_S2_free = 100 * diff_S2_free / (comsol_S2_free_interp + 1e-10)
-percent_diff_S2_total = 100 * diff_S2_total / (comsol_S2_total_interp + 1e-10)
+percent_diff_I2 = 100 * diff_I2 / 100  # Avoid division by zero
+percent_diff_S2_free = 100 * diff_S2_free / 100 #not sure if I should divide by anything or not for free S@
+percent_diff_S2_total = 100 * diff_S2_total / 5100 #threshold + receiver molecule total
 
 # Plot differences
 fig, axes = plt.subplots(3, 2, figsize=(14, 10))
@@ -227,7 +236,7 @@ axes[2, 1].set_title('Percent Difference: Total S2\n(FiPy - COMSOL)', fontsize=1
 axes[2, 1].grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('comparison_differences_COMSOL_vs_FiPy.png', dpi=300, bbox_inches='tight')
+plt.savefig(difference_file_name, dpi=300, bbox_inches='tight')
 plt.show()
 
 # =============================================================================
@@ -278,8 +287,8 @@ df_diff = pd.DataFrame({
     'FiPy_I2_nM': fipy_I2_interp
 })
 
-df_diff.to_csv('comparison_differences.csv', index=False)
-print("\nDifference data saved to: comparison_differences.csv")
+df_diff.to_csv(csv_file_name, index=False)
+print(f"\nDifference data saved to: {csv_file_name}")
 
 print("\nAnalysis complete!")
 

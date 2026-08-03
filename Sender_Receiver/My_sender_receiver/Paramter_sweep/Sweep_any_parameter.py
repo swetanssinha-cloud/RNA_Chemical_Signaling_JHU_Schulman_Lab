@@ -11,7 +11,14 @@ import pandas as pd
 import time
 from multiprocessing import Pool, cpu_count
 import warnings
+from pathlib import Path
+import sys
+parent_dir = Path(__file__).parent.parent
+sys.path.append(str(parent_dir))
 warnings.filterwarnings('ignore')
+
+
+from Functions_and_system.Functions import smooth_circular_profile, calculate_total_amount, create_adaptive_mesh_for_simulation, calculate_half_time
 
 # Import functions from your original script
 # Assuming the original file is saved as 'Sys_adaptive_mesh_tanh_nodes.py'
@@ -21,8 +28,9 @@ warnings.filterwarnings('ignore')
 # USER CONFIGURATION - FILL THESE IN
 # =============================================================================
 
-SWEEP_PARAMETER = "distance_between"  # Options: "distance_between", "k_p", "k_slow", "k_fast", "D_gel", "Th2_init", "node_diameter"
-SWEEP_VALUES = [1000, 1200,1300,1400,1500]  # List of values to sweep
+SWEEP_PARAMETER = "Th2_init"  # Options: "distance_between", "k_p", "k_slow", "k_fast", "D_gel", "Th2_init", "node_diameter"
+SWEEP_VALUES = [0.1,0.5,1,2,3]  # List of values to sweep
+
 
 # Number of parallel processes (use None for auto-detect)
 N_PROCESSES = 4  

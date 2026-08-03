@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Define your dx values that correspond to each file
-dx_values = [5.0,7.0,10.0,15.0,20.0]  # Adjust these to match your actual dx values
+dx_values = [0.8,1.0,3.0,5.0]  # Adjust these to match your actual dx values
 
 # Initialize lists to store the final values
 dx_list = []
@@ -61,7 +61,7 @@ axes[2].set_title('Final S2_total Concentration vs dx', fontsize=14)
 axes[2].grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('concentration_vs_dx.png', dpi=300, bbox_inches='tight')
+plt.savefig('concentration_vs_dx_zoomed_in.png', dpi=300, bbox_inches='tight')
 plt.show()
 
 # Print summary

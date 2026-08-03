@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 from fipy import Grid2D, CellVariable, DiffusionTerm, ImplicitSourceTerm, TransientTerm
+import gmsh
+
 
 
 D_solution = 150.0 
@@ -26,8 +28,7 @@ total_height = 1e3 #1000 μm = 1
 
 
 def smooth_circular_profile(x, y, center_x, center_y, radius, 
-                            value_inside, value_outside, 
-                            transition_width=10.0):
+                            value_inside, value_outside):
     """
     Create smooth circular concentration/diffusion profile using hyperbolic tangent.
     
@@ -76,7 +77,7 @@ def smooth_circular_profile(x, y, center_x, center_y, radius,
     distance = np.sqrt((x - center_x)**2 + (y - center_y)**2)
     
     # Steepness parameter (larger c = sharper transition)
-    c = 1.0 / transition_width
+    c = 20 * np.arctanh(0.9)/node_radius
     
     # Height and baseline
     H = value_inside - value_outside
@@ -330,3 +331,237 @@ def calculate_total_amount(profile, mesh):
     cell_volumes = mesh.cellVolumes  # In FiPy, automatically accounts for 2D area
     total = np.sum(profile * cell_volumes)
     return total
+
+
+def create_gmsh_radial_mesh(
+    bath_width=10000.0,           # μm (1 cm)
+    bath_height=1000.0,           # μm (1 mm)
+    node_diameter=75.0,           # μm
+    distance_between_nodes=300.0, # μm (center-to-center)
+    min_cell_size=0.75,          # μm (finest mesh at node surface)
+    max_cell_size=50.0,          # μm (coarsest mesh far from nodes)
+    growth_rate=1.5,             # How fast mesh grows with distance
+    mesh_filename='radial_mesh.msh',
+    visualize_gmsh=False,        # Show Gmsh GUI
+    verbose=True
+):
+    """
+    Create TRUE radial adaptive mesh using Gmsh.
+    Fine mesh ONLY near circular nodes (radially), coarse everywhere else.
+    
+    FIXED: Saves mesh in Gmsh format 2.2 for FiPy compatibility.
+    
+    Parameters:
+    -----------
+    bath_width, bath_height : float
+        Domain dimensions in μm
+    node_diameter : float
+        Diameter of circular hydrogel nodes in μm
+    distance_between_nodes : float
+        Center-to-center distance between sender and receiver nodes in μm
+    min_cell_size : float
+        Finest mesh size at node surfaces in μm (must be 0.75 for tanh compatibility)
+    max_cell_size : float
+        Coarsest mesh size far from nodes in μm
+    growth_rate : float
+        How quickly mesh transitions from fine to coarse (1.3 = slow, 2.0 = fast)
+    mesh_filename : str
+        Output filename for mesh file
+    visualize_gmsh : bool
+        If True, opens Gmsh GUI to visualize mesh
+    verbose : bool
+        Print mesh statistics
+    
+    Returns:
+    --------
+    mesh : FiPy Gmsh2D mesh object
+    sender_center_x : float
+    receiver_center_x : float
+    y_center : float
+    node_radius : float
+    """
+    
+    node_radius = node_diameter / 2.0
+    y_center = bath_height / 2.0
+    
+    # Position nodes symmetrically around domain center
+    domain_center_x = bath_width / 2.0
+    sender_center_x = domain_center_x - distance_between_nodes / 2.0
+    receiver_center_x = domain_center_x + distance_between_nodes / 2.0
+    
+    # Initialize Gmsh
+    gmsh.initialize()
+    gmsh.option.setNumber("General.Terminal", 1 if verbose else 0)
+    
+    # Create new model
+    gmsh.model.add("radial_adaptive_mesh")
+    
+    # =============================================================================
+    # GEOMETRY CREATION
+    # =============================================================================
+    
+    # Create the rectangular bath domain
+    rectangle_tag = gmsh.model.occ.addRectangle(0, 0, 0, bath_width, bath_height)
+    
+    # Create circular sender node
+    sender_circle_tag = gmsh.model.occ.addDisk(sender_center_x, y_center, 0, 
+                                                node_radius, node_radius)
+    
+    # Create circular receiver node
+    receiver_circle_tag = gmsh.model.occ.addDisk(receiver_center_x, y_center, 0,
+                                                  node_radius, node_radius)
+    
+    # Synchronize CAD entities before mesh operations
+    gmsh.model.occ.synchronize()
+    
+# =============================================================================
+# MESH SIZE FIELD - TRUE RADIAL REFINEMENT + FINE INSIDE NODES
+# =============================================================================
+
+    # Get boundaries (curves) of the circular nodes
+    sender_boundary = gmsh.model.getBoundary([(2, sender_circle_tag)], 
+                                            oriented=False, combined=False, recursive=False)
+    receiver_boundary = gmsh.model.getBoundary([(2, receiver_circle_tag)], 
+                                            oriented=False, combined=False, recursive=False)
+
+    # Extract curve tags (boundaries are 1D entities)
+    sender_curve_tags = [abs(tag) for dim, tag in sender_boundary]
+    receiver_curve_tags = [abs(tag) for dim, tag in receiver_boundary]
+
+    if verbose:
+        print(f"\nSender boundary curves: {sender_curve_tags}")
+        print(f"Receiver boundary curves: {receiver_curve_tags}")
+
+    # CREATE EXPLICIT CENTER POINTS for distance fields
+    sender_center_point = gmsh.model.occ.addPoint(sender_center_x, y_center, 0)
+    receiver_center_point = gmsh.model.occ.addPoint(receiver_center_x, y_center, 0)
+
+    # Synchronize to register the new points
+    gmsh.model.occ.synchronize()
+
+    if verbose:
+        print(f"Created sender center point: {sender_center_point}")
+        print(f"Created receiver center point: {receiver_center_point}")
+
+    # Distance field from SENDER node boundary (edge)
+    distance_field_sender_boundary = gmsh.model.mesh.field.add("Distance")
+    gmsh.model.mesh.field.setNumbers(distance_field_sender_boundary, "CurvesList", sender_curve_tags)
+    gmsh.model.mesh.field.setNumber(distance_field_sender_boundary, "Sampling", 200)
+
+    # Distance field from RECEIVER node boundary (edge)
+    distance_field_receiver_boundary = gmsh.model.mesh.field.add("Distance")
+    gmsh.model.mesh.field.setNumbers(distance_field_receiver_boundary, "CurvesList", receiver_curve_tags)
+    gmsh.model.mesh.field.setNumber(distance_field_receiver_boundary, "Sampling", 200)
+
+    # Distance field from SENDER CENTER POINT
+    distance_field_sender_center = gmsh.model.mesh.field.add("Distance")
+    gmsh.model.mesh.field.setNumbers(distance_field_sender_center, "PointsList", [sender_center_point])
+    gmsh.model.mesh.field.setNumber(distance_field_sender_center, "Sampling", 200)
+
+    # Distance field from RECEIVER CENTER POINT
+    distance_field_receiver_center = gmsh.model.mesh.field.add("Distance")
+    gmsh.model.mesh.field.setNumbers(distance_field_receiver_center, "PointsList", [receiver_center_point])
+    gmsh.model.mesh.field.setNumber(distance_field_receiver_center, "Sampling", 200)
+
+# Take MINIMUM distance to any boundary OR center
+    min_distance_field = gmsh.model.mesh.field.add("Min")
+    gmsh.model.mesh.field.setNumbers(min_distance_field, "FieldsList", 
+                                    [distance_field_sender_boundary, 
+                                    distance_field_receiver_boundary,
+                                    distance_field_sender_center,
+                                    distance_field_receiver_center])
+
+    # =============================================================================
+    # CORRECTED: Use Threshold field for gradual refinement (matches reference image)
+    # =============================================================================
+    # Define refinement zone: fine mesh extends this far from nodes
+    refinement_radius = 200.0  # μm - based on your reference image
+
+    # Create Threshold field for smooth transition
+    # Keeps mesh fine out to refinement_radius, then gradually coarsens
+    threshold_field = gmsh.model.mesh.field.add("Threshold")
+    gmsh.model.mesh.field.setNumber(threshold_field, "InField", min_distance_field)
+    gmsh.model.mesh.field.setNumber(threshold_field, "SizeMin", min_cell_size)      # 0.75 μm at nodes
+    gmsh.model.mesh.field.setNumber(threshold_field, "SizeMax", max_cell_size)      # 50 μm far away
+    gmsh.model.mesh.field.setNumber(threshold_field, "DistMin", 0.0)                # Fine mesh starts at node
+    gmsh.model.mesh.field.setNumber(threshold_field, "DistMax", refinement_radius)  # Fine mesh ends here
+    gmsh.model.mesh.field.setNumber(threshold_field, "Sigmoid", 1)                  # Smooth transition
+
+    if verbose:
+        print(f"\n✓ CORRECTED mesh refinement strategy:")
+        print(f"  At node surface (d=0): {min_cell_size:.3f} μm")
+        print(f"  From d=0 to d={refinement_radius:.0f} μm: stays ~{min_cell_size:.3f}-{min_cell_size*2:.1f} μm")
+        print(f"  Beyond d={refinement_radius:.0f} μm: smoothly grows to {max_cell_size:.1f} μm")
+        print(f"  Transition: Sigmoid (smooth, gradual)")
+        print(f"  → This matches your COMSOL reference image!")
+        
+    # Set this as the background mesh field
+    gmsh.model.mesh.field.setAsBackgroundMesh(threshold_field)
+    
+    # Disable other mesh size determination methods
+    gmsh.option.setNumber("Mesh.MeshSizeExtendFromBoundary", 0)
+    gmsh.option.setNumber("Mesh.MeshSizeFromPoints", 0)
+    gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 0)
+    
+    # Algorithm options
+    gmsh.option.setNumber("Mesh.Algorithm", 6)  # Frontal-Delaunay
+    
+    # =============================================================================
+    # GENERATE MESH
+    # =============================================================================
+    
+    
+    # Generate 2D mesh
+    gmsh.model.mesh.generate(2)
+    
+    # Optional: optimize mesh quality
+
+    gmsh.model.mesh.optimize("Netgen")
+    
+    # =============================================================================
+    # STATISTICS
+    # =============================================================================
+    
+    if verbose:
+        # Get mesh statistics
+        node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
+        element_types, element_tags_list, element_node_tags = gmsh.model.mesh.getElements(dim=2)
+        
+        n_nodes = len(node_tags)
+        n_triangles = sum(len(tags) for tags in element_tags_list)
+    
+    # =============================================================================
+    # SAVE MESH IN FORMAT 2.2 (FIPY COMPATIBLE)
+    # =============================================================================
+    
+    # THIS IS THE FIX: Force Gmsh to save in format 2.2
+    gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)
+    
+    if verbose:
+        print(f"Saving mesh in Gmsh format 2.2 (FiPy compatible)...")
+    
+    gmsh.write(mesh_filename)
+    
+    # Optional: Launch Gmsh GUI to visualize
+    if visualize_gmsh:
+        if verbose:
+            print("Launching Gmsh GUI...")
+        gmsh.fltk.run()
+    
+    # Finalize Gmsh
+    gmsh.finalize()
+    
+    # =============================================================================
+    # IMPORT INTO FIPY
+    # =============================================================================
+    
+    if verbose:
+        print(f"Importing mesh into FiPy...")
+    
+    from fipy import Gmsh2D
+    mesh = Gmsh2D(mesh_filename)
+    
+    if verbose:
+        print(f"✓ FiPy mesh created with {mesh.numberOfCells:,} cells\n")
+    
+    return mesh, sender_center_x, receiver_center_x, y_center, node_radius

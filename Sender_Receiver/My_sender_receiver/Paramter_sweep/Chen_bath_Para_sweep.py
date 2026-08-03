@@ -1,152 +1,305 @@
 """
-Tethered Genelet Reaction-Diffusion Model - Parameter Sweep with Multiprocessing
-Runs multiple simulations in parallel, sweeping over a specified parameter
-This is for Charlie Chen's Paper on DNA circuts written in COMSOL in 2025
+Parameter Sweep Script for 2D Tethered Genelet Model Chen 25' system of a 5000um by 5000um bath
+Runs multiple simulations with varying parameters using multiprocessing
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 from fipy import CellVariable, Grid2D, TransientTerm, DiffusionTerm, ImplicitSourceTerm
 from fipy.tools import numerix
-import time as timer
+import pandas as pd
+import time
 from multiprocessing import Pool, cpu_count
 import warnings
 warnings.filterwarnings('ignore')
 
-# =============================================================================
-# SWEEP CONFIGURATION - USER FILLS THESE IN
-# =============================================================================
-
-SWEEP_PARAMETER = "distance_between"  # Example: "k_p", "Th2_init", "distance_between", etc.
-SWEEP_VALUES = [100,300,500,700,1000,1500]  # List of values to test
-
-# Number of repeats per parameter value (for error bars)
-N_REPEATS = 1  # Set to 1 if no error bars needed
-
-# Number of parallel processes (None = use all available cores)
-N_PROCESSES = cpu_count() -4  # Or set to a specific number like 4, 8, etc.
+# Import functions from your original script
+# Assuming the original file is saved as 'Sys_adaptive_mesh_tanh_nodes.py'
+# We'll redefine the necessary functions here or you can import them
 
 # =============================================================================
-# DEFAULT PARAMETERS (from Supplementary Table 1)
+# USER CONFIGURATION - FILL THESE IN
 # =============================================================================
 
-# Diffusion coefficients (μm²/s)
-D_solution = 150.0  # RNA diffusion in solution
-D_gel = 60.0        # RNA diffusion in hydrogel
+SWEEP_PARAMETER = "distance_between"  # Options: "distance_between", "k_p", "k_slow", "k_fast", "D_gel", "Th2_init", "node_diameter"
+SWEEP_VALUES = [800,900,1000,1100]  # List of values to sweep
 
-# Reaction rates
-k_p = 0.2           # Transcription rate (1/s)
-k_d_ds = 3e-4       # Degradation rate of double-stranded RNA (1/s)
-k_d_ss = 3e-4       # Degradation rate of single-stranded RNA (1/s)
-k_slow = 1e5 * 1e-6 # 5bp toehold (converted to μM⁻¹s⁻¹)
-k_fast = 1e6 * 1e-6 # 7bp toehold (converted to μM⁻¹s⁻¹)
-
-# Initial concentrations (μM)
-I1O2_init = 0.1     # 100 nM sender switch
-I2_init = 0.1       # 100 nM receiver switch
-Th2_init = 5.0      # 5 μM threshold
-
-# Geometry (μm)
-node_size = 50.0
-distance_between = 300.0
-total_length = 5000.0
-
-# Time parameters
-dt_initial = 1.0    # Start with 1 second timestep
-max_time = 8 * 3600 # Maximum 8 hours
-check_interval = 100 # Check for steady state every N steps
-
-# Steady-state detection parameters
-ss_tolerance = 1e-8  # Relative change threshold for steady state
-ss_window = 50       # Number of timesteps to check for steady state
+# Number of parallel processes (use None for auto-detect)
+N_PROCESSES = 4  
+# Number of replicates per parameter value (for error bars)
+N_REPLICATES = 1
 
 # =============================================================================
-# SIMULATION FUNCTION
+# FIXED PARAMETERS (defaults from original script)
 # =============================================================================
 
-def run_single_simulation(params):
-    """
-    Run a single simulation with given parameters.
+DEFAULT_PARAMS = {
+    'D_solution': 150.0,
+    'D_gel': 60.0,
+    'k_p': 0.2,
+    'k_d_ds': 3e-4,
+    'k_d_ss': 3e-4,
+    'k_slow': 1e5 * 1e-6,
+    'k_fast': 1e6 * 1e-6,
+    'I1O2_init': 0.1,
+    'I2_init': 0.1,
+    'Th2_init': 5.0,
+    'node_size': 50.0, ####what I want to use instead of diameter and whatnot
+    'node_diameter': 75.0,
+    'bath_margin': 250.0,
+    'distance_between': 300.0,
+    'total_width': 5000,
+    'total_height': 5000,
+    'dt': 30.0,
+    'total_time': 8 * 3600,
+    'save_interval_time': 60.0,
+    'fine_dx': 5.0,
+    'coarse_dx': 40.0,
+    'box_padding': 200.0,
+    'mesh_transition_width': 100.0,
+    'profile_transition_width_factor': 3.0,
+}
+
+# =============================================================================
+# HELPER FUNCTIONS (from original script)
+# =============================================================================
+
+def smooth_circular_profile(x, y, center_x, center_y, radius, 
+                            value_inside, value_outside, 
+                            transition_width=10.0):
+    """Create smooth circular concentration/diffusion profile using hyperbolic tangent."""
+    distance = np.sqrt((x - center_x)**2 + (y - center_y)**2)
+    c = 1.0 / transition_width
+    H = value_inside - value_outside
+    U = value_outside
+    profile = U + (H / 2.0) * (np.tanh(c * (radius - distance)) + 1.0)
+    return profile
+
+
+def calculate_total_amount(concentration, mesh):
+    """Calculate total amount of species in the domain."""
+    cell_volumes = mesh.cellVolumes
+    total = np.sum(concentration * cell_volumes)
+    return total
+
+
+def create_adaptive_mesh_for_simulation(
+    node_size=50.0,
+    distance_between=300.0,  # NOW EXPLICIT PARAMETER
+    sender_center=None,
+    receiver_center=None,
+    fine_dx=5.0,
+    coarse_dx=40.0,
+    box_padding=200.0,
+    transition_width=100.0,
+    total_width=1e4,
+    total_height=1e3
+):
+    """Create adaptive mesh for the 2D genelet simulation."""
     
-    Parameters:
-    -----------
-    params : dict
-        Dictionary containing all simulation parameters
+    # Calculate sender and receiver positions
+    if sender_center is None:
+        sender_center = total_width / 2 - distance_between / 2
+    if receiver_center is None:
+        receiver_center = total_width / 2 + distance_between / 2
+    
+    node_centers_x = [sender_center, receiver_center]
+    node_centers_y = [total_height / 2]
+    
+    # Refinement box boundaries
+    refinement_x_min = min(node_centers_x) - node_size / 2 - box_padding
+    refinement_x_max = max(node_centers_x) + node_size / 2 + box_padding
+    refinement_y_min = min(node_centers_y) - node_size / 2 - box_padding
+    refinement_y_max = max(node_centers_y) + node_size / 2 + box_padding
+    
+    y_center = total_height / 2
+    
+    def calculate_refinement_factor(x_pos, y_pos):
+        """Calculate refinement factor (0=finest, 1=coarsest)."""
+        in_x_box = (refinement_x_min <= x_pos <= refinement_x_max)
+        in_y_box = (refinement_y_min <= y_pos <= refinement_y_max)
+        
+        if in_x_box and in_y_box:
+            return 0.0
+        
+        dx_out = max(0, max(refinement_x_min - x_pos, x_pos - refinement_x_max))
+        dy_out = max(0, max(refinement_y_min - y_pos, y_pos - refinement_y_max))
+        dist_outside = np.sqrt(dx_out**2 + dy_out**2)
+        
+        blend = min(1.0, dist_outside / transition_width)
+        return blend
+    
+    def create_adaptive_spacing_1D(total_length, other_positions, 
+                                   fine_dx, coarse_dx, is_x_direction):
+        """Create 1D adaptive spacing."""
+        positions = [0.0]
+        current_pos = 0.0
+        
+        while current_pos < total_length:
+            refinement_samples = []
+            for other_pos in other_positions:
+                if is_x_direction:
+                    x, y = current_pos, other_pos
+                else:
+                    x, y = other_pos, current_pos
+                blend = calculate_refinement_factor(x, y)
+                refinement_samples.append(blend)
+            
+            blend = min(refinement_samples) if refinement_samples else 1.0
+            dx_local = fine_dx + (coarse_dx - fine_dx) * blend
+            
+            current_pos += dx_local
+            if current_pos < total_length:
+                positions.append(current_pos)
+        
+        if positions[-1] < total_length:
+            positions.append(total_length)
+        
+        positions = np.array(positions)
+        dx_array = np.diff(positions)
+        return positions, dx_array
+    
+    # Create adaptive spacing
+    y_positions_prelim = np.linspace(0, total_height, 100)
+    x_positions, dx_array = create_adaptive_spacing_1D(
+        total_width, y_positions_prelim,
+        fine_dx, coarse_dx, is_x_direction=True
+    )
+    
+    y_positions, dy_array = create_adaptive_spacing_1D(
+        total_height, x_positions,
+        fine_dx, coarse_dx, is_x_direction=False
+    )
+    
+    mesh = Grid2D(dx=dx_array, dy=dy_array)
+    
+    return mesh, sender_center, receiver_center, y_center
+
+
+def calculate_half_time(time_array, I2_array, I2_init):
+    """Calculate time when I2 drops to halfway between initial and final value."""
+    I2_final = I2_array[-1]
+    I2_half = (I2_init + I2_final) / 2.0
+    
+    # Find first time point where I2 drops below half value
+    below_half = I2_array < I2_half
+    if np.any(below_half):
+        idx = np.argmax(below_half)
+        return time_array[idx]
+    else:
+        return np.nan  # Never reached half
+
+
+# =============================================================================
+# MAIN SIMULATION FUNCTION
+# =============================================================================
+
+def run_single_simulation(param_value, replicate_id=0):
+    """
+    Run a single simulation with specified parameter value.
     
     Returns:
     --------
-    dict with results
+    dict with keys:
+        - param_value: the parameter value used
+        - replicate_id: replicate number
+        - I2_final: final I2 concentration at receiver
+        - S2_final: final free S2 concentration at receiver
+        - S2_total_final: final total S2 at receiver
+        - half_time: time to reach halfway point
+        - wall_time: computation time
+        - success: True/False
     """
     
-    # Extract parameters
-    D_solution = params['D_solution']
-    D_gel = params['D_gel']
-    k_p = params['k_p']
-    k_d_ds = params['k_d_ds']
-    k_d_ss = params['k_d_ss']
-    k_slow = params['k_slow']
-    k_fast = params['k_fast']
-    I1O2_init = params['I1O2_init']
-    I2_init = params['I2_init']
-    Th2_init = params['Th2_init']
-    node_size = params['node_size']
-    distance_between = params['distance_between']
-    total_length = params['total_length']
-    dt = params['dt']
-    max_time = params['max_time']
-    check_interval = params['check_interval']
-    ss_tolerance = params['ss_tolerance']
-    ss_window = params['ss_window']
-    sweep_value = params['sweep_value']
-    repeat_idx = params['repeat_idx']
-    
-    start_time = timer.time()
+    start_wall_time = time.time()
     
     try:
-        # =====================================================================
-        # MESH SETUP
-        # =====================================================================
+        # Create parameter dictionary
+        params = DEFAULT_PARAMS.copy()
+        params[SWEEP_PARAMETER] = param_value
         
-        nx = 400
-        dx = total_length / nx
-        mesh = Grid2D(nx=nx, dx=dx)
-        x = mesh.cellCenters[0]
+        # Extract parameters
+        D_solution = params['D_solution']
+        D_gel = params['D_gel']
+        k_p = params['k_p']
+        k_d_ds = params['k_d_ds']
+        k_d_ss = params['k_d_ss']
+        k_slow = params['k_slow']
+        k_fast = params['k_fast']
+        I1O2_init = params['I1O2_init']
+        I2_init = params['I2_init']
+        Th2_init = params['Th2_init']
+        node_size = params['node_size']
+        node_diameter = params['node_diameter']
+        node_radius = node_diameter / 2
+        distance_between = params['distance_between']
+        total_width = params['total_width']
+        total_height = params['total_height']
+        dt = params['dt']
+        total_time = params['total_time']
+        save_interval_time = params['save_interval_time']
         
-        # Define node regions
-        sender_center = total_length / 2 - distance_between / 2
-        receiver_center = total_length / 2 + distance_between / 2
+        n_steps = int(total_time / dt)
+        save_interval_steps = int(save_interval_time / dt)
+
+       
+            
+        # Create adaptive mesh
+        mesh, sender_center_x, receiver_center_x, sender_center_y = create_adaptive_mesh_for_simulation(
+            node_size=node_size,
+            distance_between=distance_between,
+            sender_center=None,
+            receiver_center=None,
+            fine_dx=params['fine_dx'],
+            coarse_dx=params['coarse_dx'],
+            box_padding=params['box_padding'],
+            transition_width=params['mesh_transition_width'],
+            total_width=total_width,
+            total_height=total_height
+        )
         
-        sender_mask = (x >= sender_center - node_size/2) & (x <= sender_center + node_size/2)
-        receiver_mask = (x >= receiver_center - node_size/2) & (x <= receiver_center + node_size/2)
+        receiver_center_y = sender_center_y
+        x, y = mesh.cellCenters
+
+             # Define SQUARE sender region
+        sender_mask = ((x >= sender_center_x - node_size/2) & 
+                    (x <= sender_center_x + node_size/2) &
+                    (y >= sender_center_y - node_size/2) & 
+                    (y <= sender_center_y + node_size/2))
+
+        # Define SQUARE receiver region
+        receiver_mask = ((x >= receiver_center_x - node_size/2) & 
+                        (x <= receiver_center_x + node_size/2) &
+                        (y >= receiver_center_y - node_size/2) & 
+                        (y <= receiver_center_y + node_size/2))
+
+        # Combined gel mask
         gel_mask = sender_mask | receiver_mask
+
         
-        # =====================================================================
-        # DEFINE CELL VARIABLES
-        # =====================================================================
-        
+        # Create cell variables
         S2 = CellVariable(name="S2", mesh=mesh, value=0.0, hasOld=True)
+
         I2 = CellVariable(name="I2", mesh=mesh, value=0.0, hasOld=True)
         I2.setValue(I2_init, where=receiver_mask)
-        
+
         Th2 = CellVariable(name="Th2", mesh=mesh, value=0.0, hasOld=True)
         Th2.setValue(Th2_init, where=receiver_mask)
-        
+
         S2_I2 = CellVariable(name="S2_I2", mesh=mesh, value=0.0, hasOld=True)
         S2_Th2 = CellVariable(name="S2_Th2", mesh=mesh, value=0.0, hasOld=True)
-        
+
         I1O2 = CellVariable(name="I1O2", mesh=mesh, value=0.0)
         I1O2.setValue(I1O2_init, where=sender_mask)
-        
-        # Spatially varying diffusion
+
+        # Spatially varying diffusion coefficient
         D_S2 = CellVariable(name="D_S2", mesh=mesh, value=D_solution)
         D_S2.setValue(D_gel, where=gel_mask)
-        
-        # =====================================================================
-        # DEFINE EQUATIONS
-        # =====================================================================
-        
+
+
+                # Define equations
         eq_S2 = (TransientTerm(var=S2) == 
-                 DiffusionTerm(coeff=D_S2, var=S2) +
+                 DiffusionTerm(coeff=D_S2, var=S2) +  
                  k_p * I1O2 +
                  ImplicitSourceTerm(coeff=-(k_slow * I2 + k_fast * Th2 + k_d_ss), var=S2))
         
@@ -168,11 +321,10 @@ def run_single_simulation(params):
         
         eq = eq_S2 & eq_I2 & eq_Th2 & eq_S2_I2 & eq_S2_Th2
         
-        # =====================================================================
-        # TIME STEPPING WITH STEADY-STATE DETECTION
-        # =====================================================================
-        
-        receiver_center_idx = np.argmin(np.abs(x.value - receiver_center))
+        # Find receiver center index
+        distances_to_receiver = numerix.sqrt((x - receiver_center_x)**2 + 
+                                             (y - receiver_center_y)**2)
+        receiver_center_idx = numerix.argmin(distances_to_receiver)
         
         # Storage
         time_points = []
@@ -180,389 +332,293 @@ def run_single_simulation(params):
         S2_free_concentration = []
         S2_total_concentration = []
         
-        # For steady-state detection
-        recent_changes = []
+# Time stepping with steady-state detection
+        STEADY_STATE_THRESHOLD = 1e-8  # Relative change threshold
+        STEADY_STATE_WINDOW = 100  # Number of steps to check
+        CHECK_INTERVAL = 50  # Check every N steps
         
-        current_time = 0.0
-        step = 0
-        converged_to_ss = False
+        steady_state_reached = False
+        recent_I2_values = []
         
-        while current_time < max_time:
-            # Update old values
+        for step in range(n_steps):
             S2.updateOld()
             I2.updateOld()
             Th2.updateOld()
             S2_I2.updateOld()
             S2_Th2.updateOld()
             
-            # Store pre-step values for change calculation
-            S2_old_vals = S2.value.copy()
-            I2_old_vals = I2.value.copy()
-            Th2_old_vals = Th2.value.copy()
-            S2_I2_old_vals = S2_I2.value.copy()
-            S2_Th2_old_vals = S2_Th2.value.copy()
-            
-            # Solve equations
             res = 1e10
             sweep = 0
             max_sweeps = 10
-            tolerance = 1e-6
             
-            while res > tolerance and sweep < max_sweeps:
+            while res > 1e-6 and sweep < max_sweeps:
                 res = eq.sweep(dt=dt)
                 sweep += 1
             
-            current_time += dt
-            step += 1
-            
-            # Store data periodically
-            if step % check_interval == 0:
+            if step % save_interval_steps == 0:
+                current_time = step * dt
                 time_points.append(current_time / 3600)
-                I2_concentration.append(I2.value[receiver_center_idx])
-                S2_free_concentration.append(S2.value[receiver_center_idx])
                 
-                S2_total = (S2.value[receiver_center_idx] + 
-                           S2_I2.value[receiver_center_idx] + 
-                           S2_Th2.value[receiver_center_idx])
-                S2_total_concentration.append(S2_total)
+                I2_val = I2.value[receiver_center_idx]
+                S2_free_val = S2.value[receiver_center_idx]
+                S2_total_val = (S2.value[receiver_center_idx] + 
+                               S2_I2.value[receiver_center_idx] + 
+                               S2_Th2.value[receiver_center_idx])
+                
+                I2_concentration.append(I2_val)
+                S2_free_concentration.append(S2_free_val)
+                S2_total_concentration.append(S2_total_val)
+                
+                recent_I2_values.append(I2_val)
             
-            # =================================================================
-            # STEADY-STATE DETECTION
-            # =================================================================
-            
-            if step % check_interval == 0:
-                epsilon = 1e-10
+            # Check for steady state every CHECK_INTERVAL steps
+            if step % (save_interval_steps * CHECK_INTERVAL) == 0 and len(recent_I2_values) > STEADY_STATE_WINDOW:
+                recent_window = recent_I2_values[-STEADY_STATE_WINDOW:]
+                mean_I2 = np.mean(recent_window)
                 
-                changes = [
-                    np.max(np.abs(S2.value - S2_old_vals) / (np.abs(S2.value) + epsilon)),
-                    np.max(np.abs(I2.value - I2_old_vals) / (np.abs(I2.value) + epsilon)),
-                    np.max(np.abs(Th2.value - Th2_old_vals) / (np.abs(Th2.value) + epsilon)),
-                    np.max(np.abs(S2_I2.value - S2_I2_old_vals) / (np.abs(S2_I2.value) + epsilon)),
-                    np.max(np.abs(S2_Th2.value - S2_Th2_old_vals) / (np.abs(S2_Th2.value) + epsilon))
-                ]
-                
-                max_change = np.max(changes)
-                recent_changes.append(max_change)
-                
-                if len(recent_changes) > ss_window:
-                    recent_changes.pop(0)
-                
-                if len(recent_changes) >= ss_window:
-                    if all(c < ss_tolerance for c in recent_changes):
-                        converged_to_ss = True
+                if mean_I2 > 0:
+                    relative_change = np.std(recent_window) / mean_I2
+                    
+                    if relative_change < STEADY_STATE_THRESHOLD:
+                        steady_state_reached = True
+                        print(f"  → Steady state reached at t={current_time/3600:.2f} hr "
+                              f"(rel. change={relative_change:.2e})")
                         break
+            
+            if step % save_interval_steps == 0:
+                current_time = step * dt
+                time_points.append(current_time / 3600)
+                
+                I2_val = I2.value[receiver_center_idx]
+                S2_free_val = S2.value[receiver_center_idx]
+                S2_total_val = (S2.value[receiver_center_idx] + 
+                               S2_I2.value[receiver_center_idx] + 
+                               S2_Th2.value[receiver_center_idx])
+                
+                I2_concentration.append(I2_val)
+                S2_free_concentration.append(S2_free_val)
+                S2_total_concentration.append(S2_total_val)
         
-        elapsed_time = timer.time() - start_time
+        # Calculate outputs
+        I2_final = I2_concentration[-1]
+        S2_final = S2_free_concentration[-1]
+        S2_total_final = S2_total_concentration[-1]
         
-        # =====================================================================
-        # CALCULATE OUTPUT METRICS
-        # =====================================================================
+        time_array = np.array(time_points)
+        I2_array = np.array(I2_concentration)
+        half_time = calculate_half_time(time_array, I2_array, I2_init)
         
-        time_points = np.array(time_points)
-        I2_concentration = np.array(I2_concentration)
-        S2_free_concentration = np.array(S2_free_concentration)
-        S2_total_concentration = np.array(S2_total_concentration)
+        wall_time = time.time() - start_wall_time
         
-        # Final values (last time point)
-        final_I2 = I2_concentration[-1] if len(I2_concentration) > 0 else np.nan
-        final_S2 = S2_free_concentration[-1] if len(S2_free_concentration) > 0 else np.nan
-        final_S2_total = S2_total_concentration[-1] if len(S2_total_concentration) > 0 else np.nan
-        
-        # Time to reach halfway point for I2
-        # Halfway between initial and final I2
-        I2_halfway = (I2_init + final_I2) / 2
-        
-        # Find time when I2 crosses halfway point
-        time_to_half = np.nan
-        if len(I2_concentration) > 1:
-            # Find first point where I2 drops below halfway
-            below_half = I2_concentration < I2_halfway
-            if np.any(below_half):
-                idx = np.argmax(below_half)
-                if idx > 0:
-                    # Linear interpolation for more accurate time
-                    t1, t2 = time_points[idx-1], time_points[idx]
-                    c1, c2 = I2_concentration[idx-1], I2_concentration[idx]
-                    time_to_half = t1 + (I2_halfway - c1) * (t2 - t1) / (c2 - c1)
-                else:
-                    time_to_half = time_points[idx]
-        
-        print(f"  {SWEEP_PARAMETER}={sweep_value:.4g}, repeat {repeat_idx+1}/{N_REPEATS}: "
-              f"final_I2={final_I2:.6f}, t_half={time_to_half:.3f}h, "
-              f"runtime={elapsed_time:.1f}s, converged={converged_to_ss}")
-        
-        return {
-            'sweep_value': sweep_value,
-            'repeat_idx': repeat_idx,
-            'final_I2': final_I2,
-            'final_S2': final_S2,
-            'final_S2_total': final_S2_total,
-            'time_to_half': time_to_half,
-            'wall_time': elapsed_time,
-            'converged': converged_to_ss,
-            'time_points': time_points,
-            'I2_concentration': I2_concentration,
-            'S2_free_concentration': S2_free_concentration,
-            'S2_total_concentration': S2_total_concentration
+        result = {
+            'param_value': param_value,
+            'replicate_id': replicate_id,
+            'I2_final': I2_final,
+            'S2_final': S2_final,
+            'S2_total_final': S2_total_final,
+            'half_time': half_time,
+            'wall_time': wall_time,
+            'success': True
         }
+        
+        print(f"✓ {SWEEP_PARAMETER}={param_value:.2e}, Rep={replicate_id}: "
+              f"I2_final={I2_final*1000:.2f} nM, t_half={half_time:.2f} hr, "
+              f"time={wall_time:.1f}s")
+        
+        return result
         
     except Exception as e:
-        print(f"  ERROR: {SWEEP_PARAMETER}={sweep_value:.4g}, repeat {repeat_idx}: {str(e)}")
+        print(f"✗ {SWEEP_PARAMETER}={param_value:.2e}, Rep={replicate_id}: FAILED - {str(e)}")
         return {
-            'sweep_value': sweep_value,
-            'repeat_idx': repeat_idx,
-            'final_I2': np.nan,
-            'final_S2': np.nan,
-            'final_S2_total': np.nan,
-            'time_to_half': np.nan,
-            'wall_time': np.nan,
-            'converged': False
+            'param_value': param_value,
+            'replicate_id': replicate_id,
+            'I2_final': np.nan,
+            'S2_final': np.nan,
+            'S2_total_final': np.nan,
+            'half_time': np.nan,
+            'wall_time': time.time() - start_wall_time,
+            'success': False
         }
 
-# =============================================================================
-# PARAMETER SWEEP SETUP
-# =============================================================================
-
-def create_parameter_dict(sweep_value, repeat_idx):
-    """Create parameter dictionary with swept parameter updated."""
-    
-    params = {
-        'D_solution': D_solution,
-        'D_gel': D_gel,
-        'k_p': k_p,
-        'k_d_ds': k_d_ds,
-        'k_d_ss': k_d_ss,
-        'k_slow': k_slow,
-        'k_fast': k_fast,
-        'I1O2_init': I1O2_init,
-        'I2_init': I2_init,
-        'Th2_init': Th2_init,
-        'node_size': node_size,
-        'distance_between': distance_between,
-        'total_length': total_length,
-        'dt': dt_initial,
-        'max_time': max_time,
-        'check_interval': check_interval,
-        'ss_tolerance': ss_tolerance,
-        'ss_window': ss_window,
-        'sweep_value': sweep_value,
-        'repeat_idx': repeat_idx
-    }
-    
-    # Update the swept parameter
-    if SWEEP_PARAMETER in params:
-        params[SWEEP_PARAMETER] = sweep_value
-    else:
-        raise ValueError(f"Unknown parameter: {SWEEP_PARAMETER}")
-    
-    return params
 
 # =============================================================================
-# RUN PARAMETER SWEEP
+# PARALLEL SWEEP EXECUTION
+# =============================================================================
+
+def run_parameter_sweep():
+    """Run the full parameter sweep with multiprocessing."""
+    
+    print("="*80)
+    print("PARAMETER SWEEP CONFIGURATION")
+    print("="*80)
+    print(f"Sweep parameter: {SWEEP_PARAMETER}")
+    print(f"Sweep values: {SWEEP_VALUES}")
+    print(f"Replicates per value: {N_REPLICATES}")
+    print(f"Total simulations: {len(SWEEP_VALUES) * N_REPLICATES}")
+    
+    # Determine number of processes
+    n_processes = N_PROCESSES if N_PROCESSES else cpu_count()
+    print(f"Using {n_processes} parallel processes")
+    print("="*80)
+    print()
+    
+    # Create list of all simulation tasks
+    tasks = []
+    for param_value in SWEEP_VALUES:
+        for rep in range(N_REPLICATES):
+            tasks.append((param_value, rep))
+    
+    # Run simulations in parallel
+    start_time = time.time()
+    
+    with Pool(processes=n_processes) as pool:
+        results = pool.starmap(run_single_simulation, tasks)
+    
+    total_time = time.time() - start_time
+    
+    print()
+    print("="*80)
+    print(f"SWEEP COMPLETE - Total time: {total_time/60:.2f} minutes")
+    print("="*80)
+    
+    return results
+
+
+# =============================================================================
+# DATA ANALYSIS AND PLOTTING
+# =============================================================================
+
+def analyze_and_plot_results(results):
+    """Analyze results and create plots with error bars."""
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(results)
+    
+    # Filter successful runs
+    df_success = df[df['success'] == True].copy()
+    
+    if len(df_success) == 0:
+        print("ERROR: No successful simulations!")
+        return
+    
+    # Calculate statistics for each parameter value
+    stats = df_success.groupby('param_value').agg({
+        'I2_final': ['mean', 'std'],
+        'S2_final': ['mean', 'std'],
+        'S2_total_final': ['mean', 'std'],
+        'half_time': ['mean', 'std'],
+        'wall_time': ['mean', 'std']
+    }).reset_index()
+    
+    # Flatten column names
+    stats.columns = ['_'.join(col).strip('_') for col in stats.columns.values]
+    
+    # Save results to CSV
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    csv_filename = f'Chen25_sweep_results_{SWEEP_PARAMETER}_{timestamp}.csv'
+    stats.to_csv(csv_filename, index=False)
+    print(f"\nResults saved to: {csv_filename}")
+    
+    # Create plots
+    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    fig.suptitle(f'Parameter Sweep: {SWEEP_PARAMETER}', fontsize=16, fontweight='bold')
+    
+    param_vals = stats['param_value'].values
+    
+    # Plot 1: Final I2
+    axes[0, 0].errorbar(param_vals, stats['I2_final_mean']*1000, 
+                        yerr=stats['I2_final_std']*1000,
+                        fmt='o-', capsize=5, linewidth=2, markersize=8)
+    axes[0, 0].set_xlabel(SWEEP_PARAMETER, fontsize=12)
+    axes[0, 0].set_ylabel('Final [I2] (nM)', fontsize=12)
+    axes[0, 0].set_title('Final I2 Concentration', fontsize=14, fontweight='bold')
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    # Plot 2: Final free S2
+    axes[0, 1].errorbar(param_vals, stats['S2_final_mean']*1000, 
+                        yerr=stats['S2_final_std']*1000,
+                        fmt='o-', capsize=5, linewidth=2, markersize=8, color='green')
+    axes[0, 1].set_xlabel(SWEEP_PARAMETER, fontsize=12)
+    axes[0, 1].set_ylabel('Final [S2] free (nM)', fontsize=12)
+    axes[0, 1].set_title('Final Free S2 Concentration', fontsize=14, fontweight='bold')
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    # Plot 3: Final total S2
+    axes[0, 2].errorbar(param_vals, stats['S2_total_final_mean']*1000, 
+                        yerr=stats['S2_total_final_std']*1000,
+                        fmt='o-', capsize=5, linewidth=2, markersize=8, color='red')
+    axes[0, 2].set_xlabel(SWEEP_PARAMETER, fontsize=12)
+    axes[0, 2].set_ylabel('Final [S2] total (nM)', fontsize=12)
+    axes[0, 2].set_title('Final Total S2 Concentration', fontsize=14, fontweight='bold')
+    axes[0, 2].grid(True, alpha=0.3)
+    
+    # Plot 4: Half-time
+    axes[1, 0].errorbar(param_vals, stats['half_time_mean'], 
+                        yerr=stats['half_time_std'],
+                        fmt='o-', capsize=5, linewidth=2, markersize=8, color='purple')
+    axes[1, 0].set_xlabel(SWEEP_PARAMETER, fontsize=12)
+    axes[1, 0].set_ylabel('Half-time (hours)', fontsize=12)
+    axes[1, 0].set_title('Time to Half I2', fontsize=14, fontweight='bold')
+    axes[1, 0].grid(True, alpha=0.3)
+    
+    # Plot 5: Wall time
+    axes[1, 1].errorbar(param_vals, stats['wall_time_mean'], 
+                        yerr=stats['wall_time_std'],
+                        fmt='o-', capsize=5, linewidth=2, markersize=8, color='orange')
+    axes[1, 1].set_xlabel(SWEEP_PARAMETER, fontsize=12)
+    axes[1, 1].set_ylabel('Wall time (seconds)', fontsize=12)
+    axes[1, 1].set_title('Computation Time', fontsize=14, fontweight='bold')
+    axes[1, 1].grid(True, alpha=0.3)
+    
+    # Plot 6: Summary table
+    axes[1, 2].axis('off')
+    table_data = []
+    for _, row in stats.iterrows():
+        table_data.append([
+            f"{row['param_value']:.2e}",
+            f"{row['I2_final_mean']*1000:.1f}±{row['I2_final_std']*1000:.1f}",
+            f"{row['half_time_mean']:.2f}±{row['half_time_std']:.2f}"
+        ])
+    
+    table = axes[1, 2].table(cellText=table_data,
+                             colLabels=[SWEEP_PARAMETER, 'I2 final (nM)', 't_half (hr)'],
+                             cellLoc='center',
+                             loc='center',
+                             bbox=[0, 0, 1, 1])
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1, 2)
+    
+    plt.tight_layout()
+    
+    # Save figure
+    fig_filename = f'Chen25_sweep_plots_{SWEEP_PARAMETER}_{timestamp}.png'
+    plt.savefig(fig_filename, dpi=300, bbox_inches='tight')
+    print(f"Plots saved to: {fig_filename}")
+    plt.show()
+    
+    return stats
+
+
+# =============================================================================
+# MAIN EXECUTION
 # =============================================================================
 
 if __name__ == '__main__':
+    print("\n")
+    print("╔══════════════════════════════════════════════════════════════╗")
+    print("║    2D TETHERED GENELET MODEL -  CHEN PARAMETER SWEEP SCRIPT  ║")
+    print("╚══════════════════════════════════════════════════════════════╝")
+    print()
     
-    print("\n" + "="*80)
-    print("PARAMETER SWEEP WITH MULTIPROCESSING")
-    print("="*80)
-    print(f"Sweeping parameter: {SWEEP_PARAMETER}")
-    print(f"Values: {SWEEP_VALUES}")
-    print(f"Repeats per value: {N_REPEATS}")
-    print(f"Total simulations: {len(SWEEP_VALUES) * N_REPEATS}")
+    # Run the parameter sweep
+    results = run_parameter_sweep()
     
-    # Determine number of processes
-    if N_PROCESSES is None:
-        n_processes = cpu_count()
-    else:
-        n_processes = min(N_PROCESSES, cpu_count())
+    # Analyze and plot results
+    stats = analyze_and_plot_results(results)
     
-    print(f"Using {n_processes} parallel processes")
-    print("="*80 + "\n")
-    
-    # Create list of all parameter combinations
-    param_list = []
-    for sweep_value in SWEEP_VALUES:
-        for repeat_idx in range(N_REPEATS):
-            param_list.append(create_parameter_dict(sweep_value, repeat_idx))
-    
-    # Run simulations in parallel
-    total_start = timer.time()
-    
-    with Pool(processes=n_processes) as pool:
-        results = pool.map(run_single_simulation, param_list)
-    
-    total_time = timer.time() - total_start
-    
-    print(f"\n{'='*80}")
-    print(f"All simulations complete! Total time: {total_time/60:.1f} minutes")
-    print(f"{'='*80}\n")
-    
-    # ==========================================================================
-    # PROCESS RESULTS - CALCULATE MEANS AND STANDARD ERRORS
-    # ==========================================================================
-    
-    # Organize results by sweep value
-    results_by_value = {val: [] for val in SWEEP_VALUES}
-    for result in results:
-        results_by_value[result['sweep_value']].append(result)
-    
-    # Calculate statistics
-    sweep_vals = []
-    final_I2_mean = []
-    final_I2_err = []
-    final_S2_mean = []
-    final_S2_err = []
-    final_S2_total_mean = []
-    final_S2_total_err = []
-    time_to_half_mean = []
-    time_to_half_err = []
-    wall_time_mean = []
-    wall_time_err = []
-    
-    for val in SWEEP_VALUES:
-        repeats = results_by_value[val]
-        
-        # Extract data for this parameter value
-        I2_vals = [r['final_I2'] for r in repeats if not np.isnan(r['final_I2'])]
-        S2_vals = [r['final_S2'] for r in repeats if not np.isnan(r['final_S2'])]
-        S2_tot_vals = [r['final_S2_total'] for r in repeats if not np.isnan(r['final_S2_total'])]
-        t_half_vals = [r['time_to_half'] for r in repeats if not np.isnan(r['time_to_half'])]
-        wt_vals = [r['wall_time'] for r in repeats if not np.isnan(r['wall_time'])]
-        
-        sweep_vals.append(val)
-        
-        # Calculate means and standard errors
-        final_I2_mean.append(np.mean(I2_vals) if len(I2_vals) > 0 else np.nan)
-        final_I2_err.append(np.std(I2_vals) / np.sqrt(len(I2_vals)) if len(I2_vals) > 1 else 0)
-        
-        final_S2_mean.append(np.mean(S2_vals) if len(S2_vals) > 0 else np.nan)
-        final_S2_err.append(np.std(S2_vals) / np.sqrt(len(S2_vals)) if len(S2_vals) > 1 else 0)
-        
-        final_S2_total_mean.append(np.mean(S2_tot_vals) if len(S2_tot_vals) > 0 else np.nan)
-        final_S2_total_err.append(np.std(S2_tot_vals) / np.sqrt(len(S2_tot_vals)) if len(S2_tot_vals) > 1 else 0)
-        
-        time_to_half_mean.append(np.mean(t_half_vals) if len(t_half_vals) > 0 else np.nan)
-        time_to_half_err.append(np.std(t_half_vals) / np.sqrt(len(t_half_vals)) if len(t_half_vals) > 1 else 0)
-        
-        wall_time_mean.append(np.mean(wt_vals) if len(wt_vals) > 0 else np.nan)
-        wall_time_err.append(np.std(wt_vals) / np.sqrt(len(wt_vals)) if len(wt_vals) > 1 else 0)
-    
-    sweep_vals = np.array(sweep_vals)
-    final_I2_mean = np.array(final_I2_mean)
-    final_I2_err = np.array(final_I2_err)
-    final_S2_mean = np.array(final_S2_mean)
-    final_S2_err = np.array(final_S2_err)
-    final_S2_total_mean = np.array(final_S2_total_mean)
-    final_S2_total_err = np.array(final_S2_total_err)
-    time_to_half_mean = np.array(time_to_half_mean)
-    time_to_half_err = np.array(time_to_half_err)
-    wall_time_mean = np.array(wall_time_mean)
-    wall_time_err = np.array(wall_time_err)
-    
-    # ==========================================================================
-    # PLOTTING
-    # ==========================================================================
-    
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-    fig.suptitle(f'Parameter Sweep: {SWEEP_PARAMETER}', fontsize=16, fontweight='bold')
-    
-    # Plot 1: Final I2 vs Parameter
-    ax = axes[0, 0]
-    ax.errorbar(sweep_vals, final_I2_mean, yerr=final_I2_err, 
-                marker='o', markersize=8, linewidth=2, capsize=5, capthick=2)
-    ax.set_xlabel(f'{SWEEP_PARAMETER}', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Final [I2] (μM)', fontsize=12, fontweight='bold')
-    ax.set_title('Steady-State I2 Concentration', fontsize=13)
-    ax.grid(True, alpha=0.3)
-    
-    # Plot 2: Final S2 vs Parameter
-    ax = axes[0, 1]
-    ax.errorbar(sweep_vals, final_S2_mean, yerr=final_S2_err, 
-                marker='s', markersize=8, linewidth=2, capsize=5, capthick=2, color='green')
-    ax.set_xlabel(f'{SWEEP_PARAMETER}', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Final [S2] free (μM)', fontsize=12, fontweight='bold')
-    ax.set_title('Steady-State Free S2', fontsize=13)
-    ax.grid(True, alpha=0.3)
-    
-    # Plot 3: Final S2 Total vs Parameter
-    ax = axes[0, 2]
-    ax.errorbar(sweep_vals, final_S2_total_mean, yerr=final_S2_total_err, 
-                marker='^', markersize=8, linewidth=2, capsize=5, capthick=2, color='purple')
-    ax.set_xlabel(f'{SWEEP_PARAMETER}', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Final [S2] total (μM)', fontsize=12, fontweight='bold')
-    ax.set_title('Steady-State Total S2', fontsize=13)
-    ax.grid(True, alpha=0.3)
-    
-    # Plot 4: Time to Half vs Parameter
-    ax = axes[1, 0]
-    ax.errorbar(sweep_vals, time_to_half_mean, yerr=time_to_half_err, 
-                marker='D', markersize=8, linewidth=2, capsize=5, capthick=2, color='red')
-    ax.set_xlabel(f'{SWEEP_PARAMETER}', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Time to I2 Halfway (hours)', fontsize=12, fontweight='bold')
-    ax.set_title('Response Time', fontsize=13)
-    ax.grid(True, alpha=0.3)
-    
-    # Plot 5: Wall Time vs Parameter
-    ax = axes[1, 1]
-    ax.errorbar(sweep_vals, wall_time_mean, yerr=wall_time_err, 
-                marker='*', markersize=10, linewidth=2, capsize=5, capthick=2, color='orange')
-    ax.set_xlabel(f'{SWEEP_PARAMETER}', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Wall Time (seconds)', fontsize=12, fontweight='bold')
-    ax.set_title('Computational Cost', fontsize=13)
-    ax.grid(True, alpha=0.3)
-    
-    # Plot 6: Example time traces (first and last parameter values)
-    ax = axes[1, 2]
-    # Plot first parameter value
-    first_results = results_by_value[SWEEP_VALUES[0]]
-    for r in first_results:
-        if len(r['time_points']) > 0:
-            ax.plot(r['time_points'], r['I2_concentration'], 
-                   'b-', alpha=0.5, linewidth=1, label=f'{SWEEP_PARAMETER}={SWEEP_VALUES[0]:.3g}')
-            break
-    
-    # Plot last parameter value
-    last_results = results_by_value[SWEEP_VALUES[-1]]
-    for r in last_results:
-        if len(r['time_points']) > 0:
-            ax.plot(r['time_points'], r['I2_concentration'], 
-                   'r-', alpha=0.5, linewidth=1, label=f'{SWEEP_PARAMETER}={SWEEP_VALUES[-1]:.3g}')
-            break
-    
-    ax.set_xlabel('Time (hours)', fontsize=12, fontweight='bold')
-    ax.set_ylabel('[I2] (μM)', fontsize=12, fontweight='bold')
-    ax.set_title('Example Time Traces', fontsize=13)
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(f'Chen_Sys_parameter_sweep_{SWEEP_PARAMETER}.png', dpi=300, bbox_inches='tight')
-    plt.show()
-    
-    # ==========================================================================
-    # SAVE RESULTS TO FILE
-    # ==========================================================================
-    
-    output_filename = f'sweep_results_{SWEEP_PARAMETER}.txt'
-    with open(output_filename, 'w') as f:
-        f.write(f"Parameter Sweep Results: {SWEEP_PARAMETER}\n")
-        f.write("="*80 + "\n\n")
-        f.write(f"{'Value':<15} {'Final_I2':<15} {'I2_err':<15} {'Final_S2':<15} {'S2_err':<15} "
-                f"{'S2_total':<15} {'S2tot_err':<15} {'t_half':<15} {'t_err':<15} "
-                f"{'Wall_time':<15} {'WT_err':<15}\n")
-        f.write("-"*180 + "\n")
-        
-        for i, val in enumerate(sweep_vals):
-            f.write(f"{val:<15.6g} {final_I2_mean[i]:<15.6g} {final_I2_err[i]:<15.6g} "
-                   f"{final_S2_mean[i]:<15.6g} {final_S2_err[i]:<15.6g} "
-                   f"{final_S2_total_mean[i]:<15.6g} {final_S2_total_err[i]:<15.6g} "
-                   f"{time_to_half_mean[i]:<15.6g} {time_to_half_err[i]:<15.6g} "
-                   f"{wall_time_mean[i]:<15.6g} {wall_time_err[i]:<15.6g}\n")
-    
-    print(f"\nResults saved to: {output_filename}")
-    print(f"Figure saved to: parameter_sweep_{SWEEP_PARAMETER}.png")
-    
-    print("\n" + "="*80)
-    print("SWEEP COMPLETE!")
-    print("="*80)
+    print("\n")
+    print("╔══════════════════════════════════════════════════════════════╗")
+    print("║                    SWEEP COMPLETE!                            ║")
+    print("╚══════════════════════════════════════════════════════════════╝")
+    print()
