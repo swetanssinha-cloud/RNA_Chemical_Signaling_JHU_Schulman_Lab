@@ -254,26 +254,26 @@ def create_adaptive_mesh_for_simulation(
     return mesh, sender_center, receiver_center, y_center
 
 
-def initalize_variables(mesh, x,y, sender_center_x, receiver_center_x, receiver_center_y, node_radius, I2_init, Th2_init, I1O2_init, transition_width, D_gel, D_solution):
+def initalize_variables(mesh, x,y, sender_center_x, receiver_center_x, receiver_center_y, node_radius, I2_init, Th2_init, I1O2_init, D_gel, D_solution):
     sender_center_y = receiver_center_y
 
 
     I2_initial = smooth_circular_profile(x, y, receiver_center_x, receiver_center_y,
-                                     node_radius, I2_init, 0.0, transition_width)
+                                     node_radius, I2_init, 0.0)
 
     Th2_initial = smooth_circular_profile(x, y, receiver_center_x, receiver_center_y,
-                                        node_radius, Th2_init, 0.0, transition_width)
+                                        node_radius, Th2_init, 0.0)
 
     I1O2_initial = smooth_circular_profile(x, y, sender_center_x, sender_center_y,
-                                        node_radius, I1O2_init, 0.0, transition_width)
+                                        node_radius, I1O2_init, 0.0)
 
     # Create smooth diffusion coefficient profile
     # Inside nodes: D_gel (60), Outside nodes: D_solution (150)
     D_sender = smooth_circular_profile(x, y, sender_center_x, sender_center_y,
-                                    node_radius, D_gel, D_solution, transition_width)
+                                    node_radius, D_gel, D_solution)
 
     D_receiver = smooth_circular_profile(x, y, receiver_center_x, receiver_center_y,
-                                        node_radius, D_gel, D_solution, transition_width)
+                                        node_radius, D_gel, D_solution)
 
     # Where either node exists, use gel diffusion (take minimum)
     D_combined = np.minimum(D_sender, D_receiver)
@@ -296,7 +296,7 @@ def initalize_variables(mesh, x,y, sender_center_x, receiver_center_x, receiver_
 
 
 #You would then write this:
-#S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2 = initalize_variables(mesh, x,y, sender_center_x, receiver_center_x, receiver_center_y, node_radius, I2_init, Th2_init, I1O2_init, transition_width, D_gel, D_solution)
+#S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2 = initalize_variables(mesh, x,y, sender_center_x, receiver_center_x, receiver_center_y, node_radius, I2_init, Th2_init, I1O2_init, D_gel, D_solution)
 
 def intialize_equations(S2, D_S2, I1O2, I2, Th2, S2_I2, S2_Th2):
 
@@ -564,4 +564,4 @@ def create_gmsh_radial_mesh(
     if verbose:
         print(f"✓ FiPy mesh created with {mesh.numberOfCells:,} cells\n")
     
-    return mesh, sender_center_x, receiver_center_x, y_center, node_radius
+    return mesh, sender_center_x, receiver_center_x, y_center

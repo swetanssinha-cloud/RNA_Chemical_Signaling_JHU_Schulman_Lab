@@ -1,5 +1,5 @@
 """
-Parameter Sweep Script for 2D Tethered Genelet Model Chen 25' system of a 5000um by 5000um bath
+Parameter Sweep Script for 2D Tethered Genelet Model
 Runs multiple simulations with varying parameters using multiprocessing
 """
 
@@ -11,7 +11,16 @@ import pandas as pd
 import time
 from multiprocessing import Pool, cpu_count
 import warnings
+from pathlib import Path
+import sys
+parent_dir = Path(__file__).parent.parent
+sys.path.append(str(parent_dir))
 warnings.filterwarnings('ignore')
+
+from Functions_and_system.Functions import calculate_total_amount, smooth_circular_profile, intialize_equations, initalize_variables
+from Mesh.New_simple_mesh import create_gmsh_radial_mesh
+
+
 
 # Import functions from your original script
 # Assuming the original file is saved as 'Sys_adaptive_mesh_tanh_nodes.py'
@@ -22,10 +31,15 @@ warnings.filterwarnings('ignore')
 # =============================================================================
 
 SWEEP_PARAMETER = "distance_between"  # Options: "distance_between", "k_p", "k_slow", "k_fast", "D_gel", "Th2_init", "node_diameter"
-SWEEP_VALUES = [800,900,1000,1100]  # List of values to sweep
+SWEEP_VALUES = [200,300,500,800,1100,1200,1300,1500]  # List of values to sweep
+
+
 
 # Number of parallel processes (use None for auto-detect)
-N_PROCESSES = 4  
+if len(SWEEP_VALUES) < 6:
+    N_PROCESSES = len(SWEEP_VALUES) 
+else:
+    N_PROCESSES = 5
 # Number of replicates per parameter value (for error bars)
 N_REPLICATES = 1
 
@@ -44,7 +58,7 @@ DEFAULT_PARAMS = {
     'I1O2_init': 0.1,
     'I2_init': 0.1,
     'Th2_init': 5.0,
-    'node_size': 50.0, ####what I want to use instead of diameter and whatnot
+    'node_size': 50.0,
     'node_diameter': 75.0,
     'bath_margin': 250.0,
     'distance_between': 300.0,
@@ -53,28 +67,16 @@ DEFAULT_PARAMS = {
     'dt': 30.0,
     'total_time': 8 * 3600,
     'save_interval_time': 60.0,
-    'fine_dx': 5.0,
-    'coarse_dx': 40.0,
+    'fine_dx': 0.75, #used to be 5
+    'coarse_dx': 50.0, #used to be 40
     'box_padding': 200.0,
     'mesh_transition_width': 100.0,
     'profile_transition_width_factor': 3.0,
 }
 
 # =============================================================================
-# HELPER FUNCTIONS (from original script)
+# HELPER FUNCTIONS
 # =============================================================================
-
-def smooth_circular_profile(x, y, center_x, center_y, radius, 
-                            value_inside, value_outside, 
-                            transition_width=10.0):
-    """Create smooth circular concentration/diffusion profile using hyperbolic tangent."""
-    distance = np.sqrt((x - center_x)**2 + (y - center_y)**2)
-    c = 1.0 / transition_width
-    H = value_inside - value_outside
-    U = value_outside
-    profile = U + (H / 2.0) * (np.tanh(c * (radius - distance)) + 1.0)
-    return profile
-
 
 def calculate_total_amount(concentration, mesh):
     """Calculate total amount of species in the domain."""
@@ -82,98 +84,6 @@ def calculate_total_amount(concentration, mesh):
     total = np.sum(concentration * cell_volumes)
     return total
 
-
-def create_adaptive_mesh_for_simulation(
-    node_size=50.0,
-    distance_between=300.0,  # NOW EXPLICIT PARAMETER
-    sender_center=None,
-    receiver_center=None,
-    fine_dx=5.0,
-    coarse_dx=40.0,
-    box_padding=200.0,
-    transition_width=100.0,
-    total_width=1e4,
-    total_height=1e3
-):
-    """Create adaptive mesh for the 2D genelet simulation."""
-    
-    # Calculate sender and receiver positions
-    if sender_center is None:
-        sender_center = total_width / 2 - distance_between / 2
-    if receiver_center is None:
-        receiver_center = total_width / 2 + distance_between / 2
-    
-    node_centers_x = [sender_center, receiver_center]
-    node_centers_y = [total_height / 2]
-    
-    # Refinement box boundaries
-    refinement_x_min = min(node_centers_x) - node_size / 2 - box_padding
-    refinement_x_max = max(node_centers_x) + node_size / 2 + box_padding
-    refinement_y_min = min(node_centers_y) - node_size / 2 - box_padding
-    refinement_y_max = max(node_centers_y) + node_size / 2 + box_padding
-    
-    y_center = total_height / 2
-    
-    def calculate_refinement_factor(x_pos, y_pos):
-        """Calculate refinement factor (0=finest, 1=coarsest)."""
-        in_x_box = (refinement_x_min <= x_pos <= refinement_x_max)
-        in_y_box = (refinement_y_min <= y_pos <= refinement_y_max)
-        
-        if in_x_box and in_y_box:
-            return 0.0
-        
-        dx_out = max(0, max(refinement_x_min - x_pos, x_pos - refinement_x_max))
-        dy_out = max(0, max(refinement_y_min - y_pos, y_pos - refinement_y_max))
-        dist_outside = np.sqrt(dx_out**2 + dy_out**2)
-        
-        blend = min(1.0, dist_outside / transition_width)
-        return blend
-    
-    def create_adaptive_spacing_1D(total_length, other_positions, 
-                                   fine_dx, coarse_dx, is_x_direction):
-        """Create 1D adaptive spacing."""
-        positions = [0.0]
-        current_pos = 0.0
-        
-        while current_pos < total_length:
-            refinement_samples = []
-            for other_pos in other_positions:
-                if is_x_direction:
-                    x, y = current_pos, other_pos
-                else:
-                    x, y = other_pos, current_pos
-                blend = calculate_refinement_factor(x, y)
-                refinement_samples.append(blend)
-            
-            blend = min(refinement_samples) if refinement_samples else 1.0
-            dx_local = fine_dx + (coarse_dx - fine_dx) * blend
-            
-            current_pos += dx_local
-            if current_pos < total_length:
-                positions.append(current_pos)
-        
-        if positions[-1] < total_length:
-            positions.append(total_length)
-        
-        positions = np.array(positions)
-        dx_array = np.diff(positions)
-        return positions, dx_array
-    
-    # Create adaptive spacing
-    y_positions_prelim = np.linspace(0, total_height, 100)
-    x_positions, dx_array = create_adaptive_spacing_1D(
-        total_width, y_positions_prelim,
-        fine_dx, coarse_dx, is_x_direction=True
-    )
-    
-    y_positions, dy_array = create_adaptive_spacing_1D(
-        total_height, x_positions,
-        fine_dx, coarse_dx, is_x_direction=False
-    )
-    
-    mesh = Grid2D(dx=dx_array, dy=dy_array)
-    
-    return mesh, sender_center, receiver_center, y_center
 
 
 def calculate_half_time(time_array, I2_array, I2_init):
@@ -238,88 +148,30 @@ def run_single_simulation(param_value, replicate_id=0):
         dt = params['dt']
         total_time = params['total_time']
         save_interval_time = params['save_interval_time']
+        fine_dx = params['fine_dx']
+        coarse_dx = params['coarse_dx']
         
         n_steps = int(total_time / dt)
         save_interval_steps = int(save_interval_time / dt)
-
-       
-            
+        
         # Create adaptive mesh
-        mesh, sender_center_x, receiver_center_x, sender_center_y = create_adaptive_mesh_for_simulation(
-            node_size=node_size,
-            distance_between=distance_between,
-            sender_center=None,
-            receiver_center=None,
-            fine_dx=params['fine_dx'],
-            coarse_dx=params['coarse_dx'],
-            box_padding=params['box_padding'],
-            transition_width=params['mesh_transition_width'],
-            total_width=total_width,
-            total_height=total_height
-        )
+        mesh, sender_center_x, receiver_center_x, sender_center_y = create_gmsh_radial_mesh(bath_width = total_width, bath_height=total_height, node_diameter=node_diameter, 
+                                                                    distance_between_nodes=distance_between, min_cell_size=fine_dx,
+                                                                    max_cell_size=coarse_dx, growth_rate=1.5, mesh_filename='sweep_mesh.msh', 
+                                                                    visualize_gmsh=False, verbose=False, )
+        
         
         receiver_center_y = sender_center_y
         x, y = mesh.cellCenters
-
-             # Define SQUARE sender region
-        sender_mask = ((x >= sender_center_x - node_size/2) & 
-                    (x <= sender_center_x + node_size/2) &
-                    (y >= sender_center_y - node_size/2) & 
-                    (y <= sender_center_y + node_size/2))
-
-        # Define SQUARE receiver region
-        receiver_mask = ((x >= receiver_center_x - node_size/2) & 
-                        (x <= receiver_center_x + node_size/2) &
-                        (y >= receiver_center_y - node_size/2) & 
-                        (y <= receiver_center_y + node_size/2))
-
-        # Combined gel mask
-        gel_mask = sender_mask | receiver_mask
-
         
-        # Create cell variables
-        S2 = CellVariable(name="S2", mesh=mesh, value=0.0, hasOld=True)
+        # Create smooth profiles
 
-        I2 = CellVariable(name="I2", mesh=mesh, value=0.0, hasOld=True)
-        I2.setValue(I2_init, where=receiver_mask)
-
-        Th2 = CellVariable(name="Th2", mesh=mesh, value=0.0, hasOld=True)
-        Th2.setValue(Th2_init, where=receiver_mask)
-
-        S2_I2 = CellVariable(name="S2_I2", mesh=mesh, value=0.0, hasOld=True)
-        S2_Th2 = CellVariable(name="S2_Th2", mesh=mesh, value=0.0, hasOld=True)
-
-        I1O2 = CellVariable(name="I1O2", mesh=mesh, value=0.0)
-        I1O2.setValue(I1O2_init, where=sender_mask)
-
-        # Spatially varying diffusion coefficient
-        D_S2 = CellVariable(name="D_S2", mesh=mesh, value=D_solution)
-        D_S2.setValue(D_gel, where=gel_mask)
-
-
-                # Define equations
-        eq_S2 = (TransientTerm(var=S2) == 
-                 DiffusionTerm(coeff=D_S2, var=S2) +  
-                 k_p * I1O2 +
-                 ImplicitSourceTerm(coeff=-(k_slow * I2 + k_fast * Th2 + k_d_ss), var=S2))
+        S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2 = initalize_variables(mesh, x,y, sender_center_x, receiver_center_x, 
+                                                                     receiver_center_y, node_radius, I2_init, Th2_init, 
+                                                                     I1O2_init, D_gel, D_solution)
         
-        eq_I2 = (TransientTerm(var=I2) == 
-                 k_d_ds * S2_I2 +
-                 ImplicitSourceTerm(coeff=-k_slow * S2, var=I2))
-        
-        eq_Th2 = (TransientTerm(var=Th2) == 
-                  k_d_ds * S2_Th2 +
-                  ImplicitSourceTerm(coeff=-k_fast * S2, var=Th2))
-        
-        eq_S2_I2 = (TransientTerm(var=S2_I2) == 
-                    k_slow * I2 * S2 +
-                    ImplicitSourceTerm(coeff=-k_d_ds, var=S2_I2))
-        
-        eq_S2_Th2 = (TransientTerm(var=S2_Th2) == 
-                     k_fast * Th2 * S2 +
-                     ImplicitSourceTerm(coeff=-k_d_ds, var=S2_Th2))
-        
-        eq = eq_S2 & eq_I2 & eq_Th2 & eq_S2_I2 & eq_S2_Th2
+        eq = intialize_equations(S2, D_S2, I1O2, I2, Th2, S2_I2, S2_Th2)
+
         
         # Find receiver center index
         distances_to_receiver = numerix.sqrt((x - receiver_center_x)**2 + 
@@ -370,6 +222,7 @@ def run_single_simulation(param_value, replicate_id=0):
                 S2_total_concentration.append(S2_total_val)
                 
                 recent_I2_values.append(I2_val)
+            
             
             # Check for steady state every CHECK_INTERVAL steps
             if step % (save_interval_steps * CHECK_INTERVAL) == 0 and len(recent_I2_values) > STEADY_STATE_WINDOW:
@@ -515,7 +368,7 @@ def analyze_and_plot_results(results):
     
     # Save results to CSV
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    csv_filename = f'Chen25_sweep_results_{SWEEP_PARAMETER}_{timestamp}.csv'
+    csv_filename = f'sweep_results_{SWEEP_PARAMETER}={SWEEP_VALUES}.csv'
     stats.to_csv(csv_filename, index=False)
     print(f"\nResults saved to: {csv_filename}")
     
@@ -592,7 +445,7 @@ def analyze_and_plot_results(results):
     plt.tight_layout()
     
     # Save figure
-    fig_filename = f'Chen25_sweep_plots_{SWEEP_PARAMETER}_{timestamp}.png'
+    fig_filename = f'sweep_plots_{SWEEP_PARAMETER}_{timestamp}.png'
     plt.savefig(fig_filename, dpi=300, bbox_inches='tight')
     print(f"Plots saved to: {fig_filename}")
     plt.show()
@@ -607,7 +460,7 @@ def analyze_and_plot_results(results):
 if __name__ == '__main__':
     print("\n")
     print("╔══════════════════════════════════════════════════════════════╗")
-    print("║    2D TETHERED GENELET MODEL -  CHEN PARAMETER SWEEP SCRIPT  ║")
+    print("║    2D TETHERED GENELET MODEL - Chen 25                       ║")
     print("╚══════════════════════════════════════════════════════════════╝")
     print()
     

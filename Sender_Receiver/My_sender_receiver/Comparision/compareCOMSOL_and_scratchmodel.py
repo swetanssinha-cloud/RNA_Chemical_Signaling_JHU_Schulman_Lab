@@ -9,15 +9,18 @@ import matplotlib.pyplot as plt
 import csv
 from scipy import interpolate
 
-COMSOL_file = 'Single_sender_receiver-1100_um.txt'
+Value = 300
+fine_dx = 1
 
-python_file = 'timeseries_for_comparision_ccd=1100.csv'
+COMSOL_file = f'Single_sender_receiver-{Value}_um.txt'
 
-overlay_save_file_name = 'comsol_vs_python_ccd=110um_overlay.png'
+python_file = f'timeseries_for_comparision_ccd={Value}_triangular_mesh.csv'
 
-difference_file_name = 'comsol_vs_python_ccd=1100um_differences.png'
+overlay_save_file_name = f'comsol_vs_python_ccd={Value}um_overlay_Triangular_mesh_dx={fine_dx}.png'
 
-csv_file_name = 'comsol_vs_python_differences_ccd=1100um_data.csv'
+difference_file_name = f'comsol_vs_python_ccd={Value}um_differences_triangular_mesh_dx={fine_dx}.png'
+
+csv_file_name = f'comsol_vs_python_differences_ccd={Value}um_data.csv'
 # =============================================================================
 # LOAD COMSOL DATA (from TXT file)
 # =============================================================================
@@ -134,7 +137,7 @@ axes[0].axhline(y=75, color='g', linestyle=':', alpha=0.5, linewidth=1, label='7
 axes[0].axhline(y=25, color='orange', linestyle=':', alpha=0.5, linewidth=1, label='25% OFF')
 axes[0].set_xlabel('Time (hours)', fontsize=12)
 axes[0].set_ylabel('[I2] (nM)', fontsize=12)
-axes[0].set_title('I2 Concentration Comparison (distance = 200 μm)', fontsize=14, fontweight='bold')
+axes[0].set_title(f'I2 Concentration Comparison (distance = {Value} μm)', fontsize=14, fontweight='bold')
 axes[0].legend(loc='best')
 axes[0].grid(True, alpha=0.3)
 axes[0].set_ylim(bottom=0)
@@ -185,7 +188,7 @@ diff_S2_total = fipy_S2_total_interp - comsol_S2_total_interp
 
 # Calculate percent differences
 percent_diff_I2 = 100 * diff_I2 / 100  # Avoid division by zero
-percent_diff_S2_free = 100 * diff_S2_free / 100 #not sure if I should divide by anything or not for free S@
+percent_diff_S2_free = 100 * diff_S2_free / 100 #not sure if I should divide by anything or not for free S2
 percent_diff_S2_total = 100 * diff_S2_total / 5100 #threshold + receiver molecule total
 
 # Plot differences

@@ -8,6 +8,7 @@ import gmsh
 import sys
 import matplotlib.pyplot as plt
 from matplotlib.collections import PolyCollection
+import sys
 
 
 def create_gmsh_radial_mesh(
@@ -241,7 +242,7 @@ def create_gmsh_radial_mesh(
     if verbose:
         print(f"✓ FiPy mesh created with {mesh.numberOfCells:,} cells\n")
     
-    return mesh, sender_center_x, receiver_center_x, y_center, node_radius
+    return mesh, sender_center_x, receiver_center_x, y_center
 
 
 def visualize_gmsh_mesh_comprehensive(
@@ -517,7 +518,7 @@ def visualize_triangle_mesh(mesh, sender_x, receiver_x, y_center, node_radius,
     return fig
 
 # =============================================================================
-# EXAMPLE USAGE - Creates exactly what you described!
+# EXAMPLE USAGE 
 # =============================================================================
 if __name__ == "__main__":
     print("\n" + "="*70)
@@ -525,7 +526,7 @@ if __name__ == "__main__":
     print("="*70)
     
     # Create mesh with geometric growth (matching your requirements)
-    mesh, sender_x, receiver_x, y_ctr, radius = create_gmsh_radial_mesh(
+    mesh, sender_x, receiver_x, y_ctr = create_gmsh_radial_mesh(
         bath_width=10000.0,           # 1 cm
         bath_height=1000.0,           # 1 mm
         node_diameter=75.0,           # 75 μm diameter nodes
@@ -563,7 +564,7 @@ if __name__ == "__main__":
     # Visualize actual triangular mesh structure
     print("\nGenerating triangle mesh visualization...")
     visualize_triangle_mesh(
-    mesh, sender_x, receiver_x, y_ctr, radius,
+    mesh, sender_x, receiver_x, y_ctr, node_radius=37.5,
     zoom_sender=False,  # Set False to see receiver instead
     zoom_size=250.0,   # Adjust to zoom in/out
     save_filename='gmsh_triangle_mesh_sender.png'

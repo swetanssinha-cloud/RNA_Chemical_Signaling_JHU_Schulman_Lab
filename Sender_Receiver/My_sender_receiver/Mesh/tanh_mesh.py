@@ -41,161 +41,6 @@ save_interval_steps = int(save_interval_time / dt)
 # ADAPTIVE MESH GENERATION FUNCTIONS
 # =============================================================================
 
-# def create_adaptive_mesh_for_simulation(
-#     node_size=50.0,
-#     sender_center=None,
-#     receiver_center=None,
-#     fine_dx=5.0,
-#     coarse_dx=40.0,
-#     node_radius=37.5,
-#     transition_distance=300.0,  # Distance over which to transition from fine to coarse
-#     total_width=1e4,
-#     total_height=1e3
-# ):
-#     """
-#     Create adaptive mesh for the 2D genelet simulation with radial refinement around nodes.
-    
-#     Parameters:
-#     -----------
-#     node_size : float
-#         Size of sender/receiver nodes (μm)
-#     sender_center : float
-#         X-coordinate of sender center (μm)
-#     receiver_center : float
-#         X-coordinate of receiver center (μm)
-#     fine_dx : float
-#         Fine mesh spacing near nodes (μm)
-#     coarse_dx : float
-#         Coarse mesh spacing away from nodes (μm)
-#     node_radius : float
-#         Radius of the nodes (μm)
-#     transition_distance : float
-#         Distance from node surface over which to transition from fine to coarse mesh (μm)
-#     total_width : float
-#         Total domain width (μm)
-#     total_height : float
-#         Total domain height (μm)
-#     """
-    
-#     # Calculate sender and receiver positions if not provided
-#     if sender_center is None:
-#         sender_center = total_width / 2 - distance_between / 2
-#     if receiver_center is None:
-#         receiver_center = total_width / 2 + distance_between / 2
-    
-#     # Node centers
-#     sender_pos = np.array([sender_center, total_height / 2])
-#     receiver_pos = np.array([receiver_center, total_height / 2])
-    
-#     def distance_to_nearest_node(x, y):
-#         """
-#         Calculate the minimum distance from point (x,y) to the nearest node surface.
-#         Returns the distance from the node surface (not center).
-#         """
-#         # Distance to sender center
-#         dist_to_sender = np.sqrt((x - sender_pos[0])**2 + (y - sender_pos[1])**2)
-#         # Distance to receiver center
-#         dist_to_receiver = np.sqrt((x - receiver_pos[0])**2 + (y - receiver_pos[1])**2)
-        
-#         # Distance from node surface (subtract node radius)
-#         dist_from_sender_surface = np.maximum(dist_to_sender - node_radius, 0)
-#         dist_from_receiver_surface = np.maximum(dist_to_receiver - node_radius, 0)
-        
-#         # Return minimum distance to either node surface
-#         return np.minimum(dist_from_sender_surface, dist_from_receiver_surface)
-
-#     def calculate_refinement_factor(x, y):
-#         """
-#         Calculate refinement factor based on distance to nearest node.
-#         Returns value between 0 (fine, at node) and 1 (coarse, far away).
-#         Uses smooth tanh transition.
-#         """
-#         dist = distance_to_nearest_node(x, y)
-        
-#         # Smooth transition using tanh
-#         # At dist=0 (node surface): blend ≈ 0 (fine mesh)
-#         # At dist=transition_distance: blend ≈ 1 (coarse mesh)
-#         blend = 0.5 * (1 + np.tanh((dist - transition_distance/2) / (transition_distance/6)))
-        
-#         return blend
-    
-#     def create_adaptive_spacing_1D(total_length, positions_other_dim,
-#                                     fine_dx, coarse_dx, is_x_direction=True):
-#         """
-#         Create 1D spacing array that depends on position in both dimensions.
-#         Now uses radial distance to nodes instead of rectangular boxes.
-#         """
-#         positions = [0.0]
-#         current_pos = 0.0
-        
-#         while current_pos < total_length:
-#             # Sample refinement at current position across other dimension
-#             refinement_samples = []
-#             sample_step = max(1, len(positions_other_dim)//20)
-            
-#             for other_pos in positions_other_dim[::sample_step]:
-#                 if is_x_direction:
-#                     x, y = current_pos, other_pos
-#                 else:
-#                     x, y = other_pos, current_pos
-                
-#                 blend = calculate_refinement_factor(x, y)
-#                 refinement_samples.append(blend)
-            
-#             # Use minimum blend (finest mesh needed along this line)
-#             blend = min(refinement_samples) if refinement_samples else 1.0
-#             dx_local = fine_dx + (coarse_dx - fine_dx) * blend
-            
-#             current_pos += dx_local
-#             if current_pos < total_length:
-#                 positions.append(current_pos)
-        
-#         # Ensure we end at total_length
-#         if positions[-1] < total_length:
-#             positions.append(total_length)
-        
-#         positions = np.array(positions)
-#         dx_array = np.diff(positions)
-#         return positions, dx_array
-    
-#     # First pass: create preliminary Y spacing
-#     y_positions_prelim = np.linspace(0, total_height, 100)
-    
-#     # Create X spacing considering all Y positions
-#     x_positions, dx_array = create_adaptive_spacing_1D(
-#         total_width, y_positions_prelim,
-#         fine_dx, coarse_dx, is_x_direction=True
-#     )
-    
-#     # Create Y spacing considering all X positions
-#     y_positions, dy_array = create_adaptive_spacing_1D(
-#         total_height, x_positions,
-#         fine_dx, coarse_dx, is_x_direction=False
-#     )
-    
-#     # Create the mesh
-#     mesh = Grid2D(dx=dx_array, dy=dy_array)
-    
-#     print(f"\nRadial Adaptive Mesh Created:")
-#     print(f"  Total cells: {mesh.numberOfCells}")
-#     print(f"  X cells: {len(dx_array)}")
-#     print(f"  Y cells: {len(dy_array)}")
-#     print(f"  Min dx: {dx_array.min():.2f} μm")
-#     print(f"  Max dx: {dx_array.max():.2f} μm")
-#     print(f"  Min dy: {dy_array.min():.2f} μm")
-#     print(f"  Max dy: {dy_array.max():.2f} μm")
-#     print(f"\nRefinement parameters:")
-#     print(f"  Node radius: {node_radius:.1f} μm")
-#     print(f"  Transition distance: {transition_distance:.1f} μm")
-#     print(f"  Fine mesh (at nodes): {fine_dx:.1f} μm")
-#     print(f"  Coarse mesh (far field): {coarse_dx:.1f} μm")
-#     print(f"  Distance between nodes: {receiver_center - sender_center:.1f} μm")
-    
-#     return mesh, sender_center, receiver_center, total_height / 2
-
-
-
-'''NEW'''
 def create_adaptive_mesh_for_simulation(
     node_size=50.0,
     sender_center=None,
@@ -203,74 +48,109 @@ def create_adaptive_mesh_for_simulation(
     fine_dx=5.0,
     coarse_dx=40.0,
     node_radius=37.5,
-    transition_distance=300.0,
+    transition_distance=300.0,  # Distance over which to transition from fine to coarse
     total_width=1e4,
     total_height=1e3
 ):
     """
-    Create adaptive mesh with TRUE radial refinement.
+    Create adaptive mesh for the 2D genelet simulation with radial refinement around nodes.
+    
+    Parameters:
+    -----------
+    node_size : float
+        Size of sender/receiver nodes (μm)
+    sender_center : float
+        X-coordinate of sender center (μm)
+    receiver_center : float
+        X-coordinate of receiver center (μm)
+    fine_dx : float
+        Fine mesh spacing near nodes (μm)
+    coarse_dx : float
+        Coarse mesh spacing away from nodes (μm)
+    node_radius : float
+        Radius of the nodes (μm)
+    transition_distance : float
+        Distance from node surface over which to transition from fine to coarse mesh (μm)
+    total_width : float
+        Total domain width (μm)
+    total_height : float
+        Total domain height (μm)
     """
     
-    # Calculate node positions
+    # Calculate sender and receiver positions if not provided
     if sender_center is None:
         sender_center = total_width / 2 - distance_between / 2
     if receiver_center is None:
         receiver_center = total_width / 2 + distance_between / 2
     
+    # Node centers
     sender_pos = np.array([sender_center, total_height / 2])
     receiver_pos = np.array([receiver_center, total_height / 2])
     
-    def distance_to_nearest_node_surface(x, y):
-        """Calculate distance to nearest node surface."""
+    def distance_to_nearest_node(x, y):
+        """
+        Calculate the minimum distance from point (x,y) to the nearest node surface.
+        Returns the distance from the node surface (not center).
+        """
+        # Distance to sender center
         dist_to_sender = np.sqrt((x - sender_pos[0])**2 + (y - sender_pos[1])**2)
+        # Distance to receiver center
         dist_to_receiver = np.sqrt((x - receiver_pos[0])**2 + (y - receiver_pos[1])**2)
+        
+        # Distance from node surface (subtract node radius)
         dist_from_sender_surface = np.maximum(dist_to_sender - node_radius, 0)
         dist_from_receiver_surface = np.maximum(dist_to_receiver - node_radius, 0)
+        
+        # Return minimum distance to either node surface
         return np.minimum(dist_from_sender_surface, dist_from_receiver_surface)
-    
+
     def calculate_refinement_factor(x, y):
-        """Calculate blend factor: 0 = fine, 1 = coarse."""
-        dist = distance_to_nearest_node_surface(x, y)
+        """
+        Calculate refinement factor based on distance to nearest node.
+        Returns value between 0 (fine, at node) and 1 (coarse, far away).
+        Uses smooth tanh transition.
+        """
+        dist = distance_to_nearest_node(x, y)
+        
+        # Smooth transition using tanh
+        # At dist=0 (node surface): blend ≈ 0 (fine mesh)
+        # At dist=transition_distance: blend ≈ 1 (coarse mesh)
         blend = 0.5 * (1 + np.tanh((dist - transition_distance/2) / (transition_distance/6)))
+        
         return blend
     
-    def get_local_spacing(x, y):
-        """Get the target mesh spacing at a specific (x,y) location."""
-        blend = calculate_refinement_factor(x, y)
-        return fine_dx + (coarse_dx - fine_dx) * blend
-    
-    def create_adaptive_spacing_1D(total_length, is_x_direction=True):
+    def create_adaptive_spacing_1D(total_length, positions_other_dim,
+                                    fine_dx, coarse_dx, is_x_direction=True):
         """
-        Create 1D spacing along one direction.
-        KEY FIX: Sample at the CURRENT position in BOTH dimensions.
+        Create 1D spacing array that depends on position in both dimensions.
+        Now uses radial distance to nodes instead of rectangular boxes.
         """
         positions = [0.0]
         current_pos = 0.0
         
         while current_pos < total_length:
-            # Sample spacing at multiple cross-sectional positions
-            spacings = []
+            # Sample refinement at current position across other dimension
+            refinement_samples = []
+            sample_step = max(1, len(positions_other_dim)//20)
             
-            if is_x_direction:
-                # For X spacing: sample at different Y positions
-                # But use the CURRENT x position
-                for y_sample in np.linspace(0, total_height, 21):  # 21 samples
-                    spacing = get_local_spacing(current_pos, y_sample)
-                    spacings.append(spacing)
-            else:
-                # For Y spacing: sample at different X positions
-                for x_sample in np.linspace(0, total_width, 21):  # 21 samples
-                    spacing = get_local_spacing(x_sample, current_pos)
-                    spacings.append(spacing)
+            for other_pos in positions_other_dim[::sample_step]:
+                if is_x_direction:
+                    x, y = current_pos, other_pos
+                else:
+                    x, y = other_pos, current_pos
+                
+                blend = calculate_refinement_factor(x, y)
+                refinement_samples.append(blend)
             
-            # Use MINIMUM spacing (finest needed at this position)
-            dx_local = min(spacings)
+            # Use minimum blend (finest mesh needed along this line)
+            blend = min(refinement_samples) if refinement_samples else 1.0
+            dx_local = fine_dx + (coarse_dx - fine_dx) * blend
             
             current_pos += dx_local
             if current_pos < total_length:
                 positions.append(current_pos)
         
-        # Ensure we end exactly at total_length
+        # Ensure we end at total_length
         if positions[-1] < total_length:
             positions.append(total_length)
         
@@ -278,9 +158,20 @@ def create_adaptive_mesh_for_simulation(
         dx_array = np.diff(positions)
         return positions, dx_array
     
-    # Create X and Y spacing
-    x_positions, dx_array = create_adaptive_spacing_1D(total_width, is_x_direction=True)
-    y_positions, dy_array = create_adaptive_spacing_1D(total_height, is_x_direction=False)
+    # First pass: create preliminary Y spacing
+    y_positions_prelim = np.linspace(0, total_height, 100)
+    
+    # Create X spacing considering all Y positions
+    x_positions, dx_array = create_adaptive_spacing_1D(
+        total_width, y_positions_prelim,
+        fine_dx, coarse_dx, is_x_direction=True
+    )
+    
+    # Create Y spacing considering all X positions
+    y_positions, dy_array = create_adaptive_spacing_1D(
+        total_height, x_positions,
+        fine_dx, coarse_dx, is_x_direction=False
+    )
     
     # Create the mesh
     mesh = Grid2D(dx=dx_array, dy=dy_array)

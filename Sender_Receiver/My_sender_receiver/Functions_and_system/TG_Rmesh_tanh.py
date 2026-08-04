@@ -8,12 +8,20 @@ from fipy import CellVariable, Grid2D, TransientTerm, DiffusionTerm, ImplicitSou
 from fipy.tools import numerix
 import csv
 import pandas as pd
+import time as timer
+import sys
+from pathlib import Path
+parent_dir = Path(__file__).parent.parent
+sys.path.append(str(parent_dir))
 
-from Functions import calculate_total_amount, smooth_circular_profile, intialize_equations, initalize_variables, create_gmsh_radial_mesh
+from Functions import calculate_total_amount, smooth_circular_profile, intialize_equations, initalize_variables
+from Mesh.New_simple_mesh import create_gmsh_radial_mesh
 
 # =============================================================================
 # PARAMETERS (same as before)
 # =============================================================================
+wall_start_time = timer.time()
+
 
 D_solution = 150.0 
 D_gel = 60.0
@@ -31,16 +39,22 @@ node_size = 50.0
 node_diameter = 75
 node_radius = node_diameter / 2
 bath_margin = 250
-distance_between = 1100 # Test at large distance
+distance_between = 300 # Test at large distance
 total_width = 1e4 #10000 μm = 1 cm
 total_height = 1e3 #1000 μm = 1 mm
-fine_dx = 0.75
+fine_dx = 1 # I do need it to be 0.75 because of the way the calculations played out, but I want to speed it up right now. 
+coarse_dx = 50
 
-dt = 30.0
+dt = 60.0
 total_time = 8 * 3600
 n_steps = int(total_time / dt)
 save_interval_time = 60.0
 save_interval_steps = int(save_interval_time / dt)
+check_steady_state= True
+ss_tolerance = 1e-8
+ss_window = 50
+verbose = True
+check_interval = 100
 
 
 # =============================================================================
@@ -66,8 +80,8 @@ mesh, sender_center_x, receiver_center_x, sender_center_y = create_gmsh_radial_m
     bath_height=1000.0,           # μm (1 mm)
     node_diameter=75.0,           # μm
     distance_between_nodes=300.0, # μm (center-to-center)
-    min_cell_size=0.75,          # μm (finest mesh at node surface)
-    max_cell_size=50.0,          # μm (coarsest mesh far from nodes)
+    min_cell_size=fine_dx,          # μm (finest mesh at node surface)
+    max_cell_size=coarse_dx,          # μm (coarsest mesh far from nodes)
     growth_rate=1.5,             # How fast mesh grows with distance
     mesh_filename='radial_mesh.msh',
     visualize_gmsh=False,        # Show Gmsh GUI
@@ -90,14 +104,6 @@ print()
 
 
 # =============================================================================
-# CREATE SMOOTH CONCENTRATION PROFILES
-# =============================================================================
-
-# Use adaptive transition width based on finest mesh spacing
-# The adaptive mesh has fine_dx = 5.0 μm near nodes
-
-
-# =============================================================================
 # CELL VARIABLES WITH SMOOTH INITIAL CONDITIONS
 # =============================================================================
 
@@ -105,10 +111,6 @@ S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2 = initalize_variables(mesh, x,y, sender_c
                                                              receiver_center_x, receiver_center_y, node_radius, I2_init, Th2_init, 
                                                              I1O2_init, D_gel, D_solution)
 
-
-# =============================================================================
-# EQUATIONS (same as before)
-# =============================================================================
 
 eq = intialize_equations(S2, D_S2, I1O2, I2, Th2, S2_I2, S2_Th2)
 
@@ -127,6 +129,13 @@ I2_concentration = []
 S2_free_concentration = []
 S2_total_concentration = []
 
+# For steady-state detection: store recent changes
+recent_changes = []
+    
+current_time = 0.0
+step = 0
+converged_to_ss = False
+
 # =============================================================================
 # TIME STEPPING
 # =============================================================================
@@ -140,6 +149,12 @@ for step in range(n_steps):
     Th2.updateOld()
     S2_I2.updateOld()
     S2_Th2.updateOld()
+
+    S2_old_vals = S2.value.copy()
+    I2_old_vals = I2.value.copy()
+    Th2_old_vals = Th2.value.copy()
+    S2_I2_old_vals = S2_I2.value.copy()
+    S2_Th2_old_vals = S2_Th2.value.copy()
     
     res = 1e10
     sweep = 0
@@ -162,6 +177,38 @@ for step in range(n_steps):
         I2_concentration.append(I2_val)
         S2_free_concentration.append(S2_free_val)
         S2_total_concentration.append(S2_total_val)
+
+        if check_steady_state and step % check_interval == 0:
+            # Calculate maximum relative change across all variables
+            # Change = |C(t) - C(t-dt)| / (|C(t)| + epsilon)
+            epsilon = 1e-10  # Prevent division by zero
+            
+            changes = [
+                np.max(np.abs(S2.value - S2_old_vals) / (np.abs(S2.value) + epsilon)),
+                np.max(np.abs(I2.value - I2_old_vals) / (np.abs(I2.value) + epsilon)),
+                np.max(np.abs(Th2.value - Th2_old_vals) / (np.abs(Th2.value) + epsilon)),
+                np.max(np.abs(S2_I2.value - S2_I2_old_vals) / (np.abs(S2_I2.value) + epsilon)),
+                np.max(np.abs(S2_Th2.value - S2_Th2_old_vals) / (np.abs(S2_Th2.value) + epsilon))
+            ]
+            
+            max_change = np.max(changes)
+            recent_changes.append(max_change)
+            
+            # Keep only recent window
+            if len(recent_changes) > ss_window:
+                recent_changes.pop(0)
+            
+            # Check if all recent changes are below tolerance
+            if len(recent_changes) >= ss_window:
+                if all(c < ss_tolerance for c in recent_changes):
+                    converged_to_ss = True
+                    if verbose:
+                        print(f"\n{'='*70}")
+                        print(f"STEADY STATE REACHED at t = {current_time/3600:.3f} hours")
+                        print(f"Maximum relative change: {max_change:.2e} < {ss_tolerance:.2e}")
+                        print(f"{'='*70}\n")
+                    break
+        
         
         if step % (save_interval_steps * 10) == 0:  # Print less frequently
             print(f"t = {current_time/3600:.2f} hr: "
@@ -170,6 +217,16 @@ for step in range(n_steps):
             
 
 print("\nSimulation complete!")
+
+
+wall_time_end = timer.time()
+wall_time = wall_time_end - wall_start_time
+
+print(f'total hours of time for simulation: {wall_time:.3f}')
+
+
+
+
 
 # =============================================================================
 # SAVE RESULTS TO CSV
@@ -190,7 +247,7 @@ df = pd.DataFrame({
     'S2_total (nM)': S2_total_concentration_nM})
 
 # Save to CSV
-csv_filename = f'timeseries_for_comparision_ccd={distance_between:.0f}_triangular_mesh.csv'
+csv_filename = f'timeseries_for_comparision_ccd={distance_between:.0f}_triangular_mesh_dx={fine_dx}.csv'
 df.to_csv(csv_filename, index=False)
 print(f"Time series data saved to '{csv_filename}'")
 
