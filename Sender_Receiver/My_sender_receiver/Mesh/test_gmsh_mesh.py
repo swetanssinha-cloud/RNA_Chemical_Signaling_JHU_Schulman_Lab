@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from New_simple_mesh import create_gmsh_radial_mesh
 
 # Create the mesh with YOUR parameters
-mesh, sender_x, receiver_x, y_ctr, radius = create_gmsh_radial_mesh(
+mesh, sender_x, receiver_x, y_ctr = create_gmsh_radial_mesh(
     bath_width=10000.0,       # 1 cm
     bath_height=1000.0,       # 1 mm  
     node_diameter=75.0,       # 75 μm nodes

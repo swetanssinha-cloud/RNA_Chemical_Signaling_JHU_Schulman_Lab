@@ -31,11 +31,11 @@ from Mesh.New_simple_mesh import create_gmsh_radial_mesh
 # =============================================================================
 
 SWEEP_PARAMETER = "distance_between"  # Options: "distance_between", "k_p", "k_slow", "k_fast", "D_gel", "Th2_init", "node_diameter"
-SWEEP_VALUES = [200,300,500,800,1100,1200,1300,1500]  # List of values to sweep
+SWEEP_VALUES = [200.0,300.0,500.0,800.0,1000.0,1100.0,1200.0,1300.0,1500.0]  # List of values to sweep
+
+#Chloe's COMSOL result values for ccd: SWEEP_VALUES = [200.0,300.0,500.0,800.0,1000.0,1100.0,1200.0,1300.0,1500.0]  # List of values to sweep
 
 
-SWEEP_PARAMETER = "fine_dx"
-SWEEP_VALUES = [0.25,0.5,0.75, 1, 1.25]
 
 
 # Number of parallel processes (use None for auto-detect)
@@ -71,7 +71,7 @@ DEFAULT_PARAMS = {
     'total_time': 8 * 3600,
     'save_interval_time': 60.0,
     'fine_dx': 0.75, #used to be 5
-    'coarse_dx': 50.0, #used to be 40
+    'coarse_dx': 100.0, #used to be 40
     'box_padding': 200.0,
     'mesh_transition_width': 100.0,
     'profile_transition_width_factor': 3.0,
@@ -101,6 +101,20 @@ def calculate_half_time(time_array, I2_array, I2_init):
         return time_array[idx]
     else:
         return np.nan  # Never reached half
+
+
+def determine_if_mesh_changes(param_name):
+    """Check if parameter affects mesh geometry"""
+    mesh_affecting_params = ['distance_between', 'node_diameter', 'fine_dx', 'coarse_dx']
+    return param_name in mesh_affecting_params
+
+
+def get_mesh_filename(params):
+    """Generate unique mesh filename based on geometry parameters"""
+    return (f"sweep_mesh_ccd={params['distance_between']:.2f}_"
+            f"nd={params['node_diameter']:.2f}_"
+            f"fine={params['fine_dx']:.2f}_"
+            f"coarse={params['coarse_dx']:.2f}.msh")
 
 
 # =============================================================================
@@ -160,12 +174,13 @@ def run_single_simulation(param_value, replicate_id=0):
         # Create adaptive mesh
         mesh, sender_center_x, receiver_center_x, sender_center_y = create_gmsh_radial_mesh(bath_width = total_width, bath_height=total_height, node_diameter=node_diameter, 
                                                                     distance_between_nodes=distance_between, min_cell_size=fine_dx,
-                                                                    max_cell_size=coarse_dx, growth_rate=1.5, mesh_filename='sweep_mesh.msh', 
+                                                                    max_cell_size=coarse_dx, growth_rate=1.5, mesh_filename=f'sweep_mesh_ccd={distance_between:.2f}.msh', 
                                                                     visualize_gmsh=False, verbose=False, )
         
         
         receiver_center_y = sender_center_y
-        x, y = mesh.cellCenters
+        #x, y = mesh.cellCenters - wrong because of Gmesh or something - I asked chat. 
+        x, y = mesh.cellCenters[0], mesh.cellCenters[1]
         
         # Create smooth profiles
 
@@ -371,7 +386,7 @@ def analyze_and_plot_results(results):
     
     # Save results to CSV
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    csv_filename = f'sweep_results_{SWEEP_PARAMETER}={SWEEP_VALUES}.csv'
+    csv_filename = f'sweep_results_{SWEEP_PARAMETER}={SWEEP_VALUES}_triangular_mesh.csv'
     stats.to_csv(csv_filename, index=False)
     print(f"\nResults saved to: {csv_filename}")
     
@@ -448,7 +463,7 @@ def analyze_and_plot_results(results):
     plt.tight_layout()
     
     # Save figure
-    fig_filename = f'sweep_plots_{SWEEP_PARAMETER}_{timestamp}.png'
+    fig_filename = f'sweep_plots_{SWEEP_PARAMETER}_{timestamp}_triangular.png'
     plt.savefig(fig_filename, dpi=300, bbox_inches='tight')
     print(f"Plots saved to: {fig_filename}")
     plt.show()
@@ -475,6 +490,6 @@ if __name__ == '__main__':
     
     print("\n")
     print("╔══════════════════════════════════════════════════════════════╗")
-    print("║                    SWEEP COMPLETE!                            ║")
+    print("║                    SWEEP COMPLETE!                           ║") 
     print("╚══════════════════════════════════════════════════════════════╝")
     print()

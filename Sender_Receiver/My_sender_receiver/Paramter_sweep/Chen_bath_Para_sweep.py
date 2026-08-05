@@ -1,6 +1,8 @@
 """
 Parameter Sweep Script for 2D Tethered Genelet Model
 Runs multiple simulations with varying parameters using multiprocessing
+
+ONLY DIFFERENCE BETWEEN THIS AND SWEEP_ANY_PARAMETER is the dimensions of the box - which I can literally sweep anyways
 """
 
 import numpy as np

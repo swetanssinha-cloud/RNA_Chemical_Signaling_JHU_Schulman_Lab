@@ -165,13 +165,13 @@ def create_gmsh_radial_mesh(
     gmsh.model.mesh.field.setNumber(threshold_field, "DistMax", refinement_radius)  # Fine mesh ends here
     gmsh.model.mesh.field.setNumber(threshold_field, "Sigmoid", 1)                  # Smooth transition
 
-    if verbose:
-        print(f"\n✓ CORRECTED mesh refinement strategy:")
-        print(f"  At node surface (d=0): {min_cell_size:.3f} μm")
-        print(f"  From d=0 to d={refinement_radius:.0f} μm: stays ~{min_cell_size:.3f}-{min_cell_size*2:.1f} μm")
-        print(f"  Beyond d={refinement_radius:.0f} μm: smoothly grows to {max_cell_size:.1f} μm")
-        print(f"  Transition: Sigmoid (smooth, gradual)")
-        print(f"  → This matches your COMSOL reference image!")
+    # if verbose:
+    #     print(f"\n✓ CORRECTED mesh refinement strategy:")
+    #     print(f"  At node surface (d=0): {min_cell_size:.3f} μm")
+    #     print(f"  From d=0 to d={refinement_radius:.0f} μm: stays ~{min_cell_size:.3f}-{min_cell_size*2:.1f} μm")
+    #     print(f"  Beyond d={refinement_radius:.0f} μm: smoothly grows to {max_cell_size:.1f} μm")
+    #     print(f"  Transition: Sigmoid (smooth, gradual)")
+    #     print(f"  → This matches your COMSOL reference image!")
         
     # Set this as the background mesh field
     gmsh.model.mesh.field.setAsBackgroundMesh(threshold_field)
@@ -215,8 +215,8 @@ def create_gmsh_radial_mesh(
     # THIS IS THE FIX: Force Gmsh to save in format 2.2
     gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)
     
-    if verbose:
-        print(f"Saving mesh in Gmsh format 2.2 (FiPy compatible)...")
+    # if verbose:
+    #     print(f"Saving mesh in Gmsh format 2.2 (FiPy compatible)...")
     
     gmsh.write(mesh_filename)
     
@@ -239,8 +239,8 @@ def create_gmsh_radial_mesh(
     from fipy import Gmsh2D
     mesh = Gmsh2D(mesh_filename)
     
-    if verbose:
-        print(f"✓ FiPy mesh created with {mesh.numberOfCells:,} cells\n")
+    # if verbose:
+    #     print(f"✓ FiPy mesh created with {mesh.numberOfCells:,} cells\n")
     
     return mesh, sender_center_x, receiver_center_x, y_center
 

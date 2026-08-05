@@ -14,7 +14,7 @@ fine_dx = 1
 
 COMSOL_file = f'Single_sender_receiver-{Value}_um.txt'
 
-python_file = f'timeseries_for_comparision_ccd={Value}_triangular_mesh.csv'
+python_file = f'timeseries_for_comparision_ccd={Value}_triangular_mesh_dx={fine_dx}.csv'
 
 overlay_save_file_name = f'comsol_vs_python_ccd={Value}um_overlay_Triangular_mesh_dx={fine_dx}.png'
 
