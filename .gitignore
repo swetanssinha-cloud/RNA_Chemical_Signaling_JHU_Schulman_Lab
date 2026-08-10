@@ -11,3 +11,4 @@ simple_model_code/
 Fipy_learning/
 surrogate_vs_fipy_benchmark.json/
 genelet_sender_receiver_surrogate.py/
+genelet_sender_receiver_fipy.py/
