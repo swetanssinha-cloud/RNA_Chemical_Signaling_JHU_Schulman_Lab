@@ -33,16 +33,16 @@ k_fast = 1e6 * 1e-6 # 1/(Ms) * microMolar
  
 I1O2_init = 0.1 #(in uM) - 100 nM
 I2_init = 0.1 #(in uM) - 100 nM
-Th2_init = I2_init * 4 #(in uM) - 5000 nM
+Th2_init = I2_init * 4 #(in uM) - 
 
-node_size = 50.0
+
 node_diameter = 75
 node_radius = node_diameter / 2
 bath_margin = 250
-distance_between = 200 # Test at large distance
+distance_between = 300 # Test at large distance
 total_width = 5000 #10000 μm = 1 cm
 total_height = 5000 #1000 μm = 1 mm
-fine_dx = 2 # Speed it up so use 5um for fine mesh
+fine_dx = 5 # Speed it up so use 5um for fine mesh
 cells_per_level=3
 coarse_dx = 100
 
@@ -113,7 +113,7 @@ S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2 = initalize_variables_speedup(mesh, x,y, 
                                                              I1O2_init, D_gel, D_solution)
 #Want the values to be true false so this speeds it up
 
-eq = intialize_equations(S2, D_S2, I1O2, I2, Th2, S2_I2, S2_Th2)
+eq = intialize_equations(S2, D_S2, I1O2, I2, Th2, S2_I2, S2_Th2, k_p, k_slow, k_fast, k_d_ss, k_d_ds)
 
 # =============================================================================
 # FIND RECEIVER CENTER INDEX (for monitoring)
