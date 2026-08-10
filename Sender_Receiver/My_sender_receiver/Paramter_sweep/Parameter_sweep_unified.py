@@ -91,9 +91,10 @@ warnings.filterwarnings("ignore")
 # USER CONFIGURATION  -- this is the only block you normally edit
 # =============================================================================
 
-SWEEP_PARAMETER = "Th2_init"
+SWEEP_PARAMETER = "k_slow"
 
-SWEEP_VALUES = [.1,.2,.3,.4,.5] 
+SWEEP_VALUES = np.array([1,2,3,4,5])
+SWEEP_VALUES = SWEEP_VALUES * 5e4 * 1e-6
 
 # Examples for other sweeps (uncomment one):
 #   SWEEP_PARAMETER = "Th2_init";  SWEEP_VALUES = [0.1, 0.2, 0.5, 1.0, 2.0, 5.0]
