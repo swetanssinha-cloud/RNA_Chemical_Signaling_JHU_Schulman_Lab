@@ -9,12 +9,12 @@ import matplotlib.pyplot as plt
 import csv
 from scipy import interpolate
 
-Value = 300
-fine_dx = 1
+Value = 1200
+fine_dx = 2
 
-COMSOL_file = f'Single_sender_receiver-{Value}_um.txt'
+COMSOL_file = f'Single_sender_receiver-{Value}_um copy.txt'
 
-python_file = f'timeseries_for_comparision_ccd={Value}_triangular_mesh_dx={fine_dx}.csv'
+python_file = f'timeseries_for_comparision_ccd={Value}_Claudes_triangular_mesh_dx={fine_dx}_speedup_V4 copy.csv'
 
 overlay_save_file_name = f'comsol_vs_python_ccd={Value}um_overlay_Triangular_mesh_dx={fine_dx}.png'
 

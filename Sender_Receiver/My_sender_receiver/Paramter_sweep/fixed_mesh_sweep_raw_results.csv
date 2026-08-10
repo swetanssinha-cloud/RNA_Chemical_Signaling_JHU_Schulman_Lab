@@ -1,0 +1,4 @@
+param_value,replicate_id,I2_final,S2_final,S2_total_final,half_time,wall_time,timeseries_file,success
+0.1,0,0.09999999999999998,0.0,0.0,0.016666666666666666,3155.430835755018,Parameter_sweep for Th2_init with triangular mesh/timeseries_Th2_init=0.1_rep=0.csv,True
+1.0,0,0.09999999999999998,0.0,0.0,0.016666666666666666,3167.162614142988,Parameter_sweep for Th2_init with triangular mesh/timeseries_Th2_init=1_rep=0.csv,True
+5.0,0,0.09999999999999998,0.0,0.0,0.016666666666666666,3177.371283920016,Parameter_sweep for Th2_init with triangular mesh/timeseries_Th2_init=5_rep=0.csv,True

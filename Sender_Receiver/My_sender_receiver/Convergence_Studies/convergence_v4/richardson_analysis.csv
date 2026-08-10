@@ -1,0 +1,5 @@
+quantity,dx_coarse,dx_medium,dx_fine,p,extrapolated,gci_percent,note
+I2_center_final_nM,4.0,2.0,1.0,,,,oscillatory - not monotone convergence
+I2_avg_final_nM,4.0,2.0,1.0,6.914560941398529,26.88753915750814,0.00022161523671848787,p high - probably not yet in the asymptotic range
+S2_total_avg_final_nM,4.0,2.0,1.0,,,,oscillatory - not monotone convergence
+half_time_avg_hr,4.0,2.0,1.0,1.5819038385817978,2.167653535547684,0.07050154837006944,healthy

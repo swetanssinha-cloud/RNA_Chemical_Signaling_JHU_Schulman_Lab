@@ -78,4 +78,4 @@ def getCurves(fileName):
     
     return t, p
 
-getCurves("Single_sender_receiver-1500_um.txt")
+getCurves("Single_sender_receiver-800_um.txt")

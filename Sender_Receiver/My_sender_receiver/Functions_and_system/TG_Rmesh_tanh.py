@@ -4,7 +4,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from fipy import CellVariable, Grid2D, TransientTerm, DiffusionTerm, ImplicitSourceTerm
+from fipy import CellVariable, Grid2D, TransientTerm, DiffusionTerm, ImplicitSourceTerm, Gmsh2D
 from fipy.tools import numerix
 import csv
 import pandas as pd
@@ -14,8 +14,8 @@ from pathlib import Path
 parent_dir = Path(__file__).parent.parent
 sys.path.append(str(parent_dir))
 
-from Functions import calculate_total_amount, smooth_circular_profile, intialize_equations, initalize_variables
-from Mesh.New_simple_mesh import create_gmsh_radial_mesh
+from Functions import calculate_total_amount, smooth_circular_profile, intialize_equations, initalize_variables, initalize_variables_speedup
+from Mesh.New_simple_mesh import create_gmsh_radial_mesh, create_conformal_radial_mesh
 
 # =============================================================================
 # PARAMETERS (same as before)
@@ -25,25 +25,26 @@ wall_start_time = timer.time()
 
 D_solution = 150.0 
 D_gel = 60.0
-k_p = 0.2 #1/s
+k_p = 0.01 #0.2 This was the value CHen 25 used #1/s
 k_d_ds = 3e-4 #1/s
 k_d_ss = 3e-4 #1/s
-k_slow = 1e5 * 1e-6 # 1/(Ms) * microMolar
+k_slow = 5e4 * 1e-6#1e5 * 1e-6 # 1/(Ms) * microMolar
 k_fast = 1e6 * 1e-6 # 1/(Ms) * microMolar
  
 I1O2_init = 0.1 #(in uM) - 100 nM
 I2_init = 0.1 #(in uM) - 100 nM
-Th2_init = 5.0 #(in uM) - 5000 nM
+Th2_init = I2_init * 4 #(in uM) - 5000 nM
 
 node_size = 50.0
 node_diameter = 75
 node_radius = node_diameter / 2
 bath_margin = 250
-distance_between = 300 # Test at large distance
-total_width = 1e4 #10000 μm = 1 cm
-total_height = 1e3 #1000 μm = 1 mm
-fine_dx = 1 # I do need it to be 0.75 because of the way the calculations played out, but I want to speed it up right now. 
-coarse_dx = 50
+distance_between = 200 # Test at large distance
+total_width = 5000 #10000 μm = 1 cm
+total_height = 5000 #1000 μm = 1 mm
+fine_dx = 2 # Speed it up so use 5um for fine mesh
+cells_per_level=3
+coarse_dx = 100
 
 dt = 60.0
 total_time = 8 * 3600
@@ -70,21 +71,24 @@ print("Creating adaptive mesh...")
 # - fine_dx: mesh spacing in refined region (smaller = finer, but slower)
 # - coarse_dx: mesh spacing in bulk region (larger = coarser, but faster)
 # - box_padding: extra padding around nodes for refined region
-# - transition_width: how gradually the mesh transitions from fine to coarse
 
-mesh, sender_center_x, receiver_center_x, sender_center_y = create_gmsh_radial_mesh(
-    bath_width=10000.0,           # μm (1 cm)
-    bath_height=1000.0,           # μm (1 mm)
+
+
+'''Claude's program - apparently supposed to fix my worries. '''
+mesh_filename, sender_center_x, receiver_center_x, sender_center_y = create_conformal_radial_mesh(
+    bath_width=total_width,           # μm (1 cm)
+    bath_height=total_height,           # μm (1 mm)
     node_diameter=75.0,           # μm
-    distance_between_nodes=300.0, # μm (center-to-center)
+    distance_between_nodes=distance_between, # μm (center-to-center)
     min_cell_size=fine_dx,          # μm (finest mesh at node surface)
     max_cell_size=coarse_dx,          # μm (coarsest mesh far from nodes)
     growth_rate=1.5,             # How fast mesh grows with distance
+    cells_per_level=cells_per_level,  # Number of cells per refinement level
     mesh_filename='radial_mesh.msh',
     visualize_gmsh=False,        # Show Gmsh GUI
-    verbose=True
-)
+    verbose=True)
 
+mesh = Gmsh2D(mesh_filename)
 receiver_center_y = sender_center_y  # Both at same Y position
 
 # Get cell centers
@@ -104,10 +108,10 @@ print()
 # CELL VARIABLES WITH SMOOTH INITIAL CONDITIONS
 # =============================================================================
 
-S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2 = initalize_variables(mesh, x,y, sender_center_x, 
+S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2 = initalize_variables_speedup(mesh, x,y, sender_center_x, 
                                                              receiver_center_x, receiver_center_y, node_radius, I2_init, Th2_init, 
                                                              I1O2_init, D_gel, D_solution)
-
+#Want the values to be true false so this speeds it up
 
 eq = intialize_equations(S2, D_S2, I1O2, I2, Th2, S2_I2, S2_Th2)
 
@@ -244,116 +248,45 @@ df = pd.DataFrame({
     'S2_total (nM)': S2_total_concentration_nM})
 
 # Save to CSV
-# csv_filename = f'timeseries_for_comparision_ccd={distance_between:.0f}_triangular_mesh_dx={fine_dx}.csv'
-# df.to_csv(csv_filename, index=False)
+csv_filename = f'timeseries_5mmx5mm_ccd={distance_between:.0f}_Claudes_triangular_mesh_dx={fine_dx}_speedup_V4.csv'
+df.to_csv(csv_filename, index=False)
 # print(f"Time series data saved to '{csv_filename}'")
 
 # =============================================================================
 # PLOTTING
 # =============================================================================
 
-# Time series plot
-# fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-# fig.suptitle(f'Adaptive Mesh: Domain {total_width/1e3:.0f}mm x {total_height/1e3:.0f}mm, Distance={distance_between:.0f}μm', 
-#              fontsize=16, fontweight='bold')
+#Time series plot
+fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+fig.suptitle(f'Adaptive Mesh: Domain {total_width/1e3:.0f}mm x {total_height/1e3:.0f}mm, Distance={distance_between:.0f}μm', 
+             fontsize=16, fontweight='bold')
 
-# axes[0].plot(time_points, I2_concentration_nM, 'b-', linewidth=2)
-# axes[0].axhline(y=75, color='g', linestyle='--', alpha=0.5, label='75% ON')
-# axes[0].axhline(y=25, color='r', linestyle='--', alpha=0.5, label='25% OFF')
-# axes[0].set_xlabel('Time (hours)', fontsize=12)
-# axes[0].set_ylabel('[I2] (nM)', fontsize=12)
-# axes[0].set_title(f'I2 at Receiver', fontsize=14, fontweight='bold')
-# axes[0].legend()
-# axes[0].grid(True, alpha=0.3)
-# axes[0].set_ylim(bottom=0)
+axes[0].plot(time_points, I2_concentration_nM, 'b-', linewidth=2)
+axes[0].axhline(y=75, color='g', linestyle='--', alpha=0.5, label='75% ON')
+axes[0].axhline(y=25, color='r', linestyle='--', alpha=0.5, label='25% OFF')
+axes[0].set_xlabel('Time (hours)', fontsize=12)
+axes[0].set_ylabel('[I2] (nM)', fontsize=12)
+axes[0].set_title(f'I2 at Receiver', fontsize=14, fontweight='bold')
+axes[0].legend()
+axes[0].grid(True, alpha=0.3)
+axes[0].set_ylim(bottom=0)
 
-# axes[1].plot(time_points, S2_free_concentration_nM, 'g-', linewidth=2)
-# axes[1].set_xlabel('Time (hours)', fontsize=12)
-# axes[1].set_ylabel('[S2] free (nM)', fontsize=12)
-# axes[1].set_title('Free S2 at Receiver', fontsize=14, fontweight='bold')
-# axes[1].grid(True, alpha=0.3)
-# axes[1].set_ylim(bottom=0)
+axes[1].plot(time_points, S2_free_concentration_nM, 'g-', linewidth=2)
+axes[1].set_xlabel('Time (hours)', fontsize=12)
+axes[1].set_ylabel('[S2] free (nM)', fontsize=12)
+axes[1].set_title('Free S2 at Receiver', fontsize=14, fontweight='bold')
+axes[1].grid(True, alpha=0.3)
+axes[1].set_ylim(bottom=0)
 
-# axes[2].plot(time_points, S2_total_concentration_nM, 'r-', linewidth=2)
-# axes[2].set_xlabel('Time (hours)', fontsize=12)
-# axes[2].set_ylabel('[S2] total (nM)', fontsize=12)
-# axes[2].set_title('Total S2 at Receiver', fontsize=14, fontweight='bold')
-# axes[2].grid(True, alpha=0.3)
-# axes[2].set_ylim(bottom=0)
+axes[2].plot(time_points, S2_total_concentration_nM, 'r-', linewidth=2)
+axes[2].set_xlabel('Time (hours)', fontsize=12)
+axes[2].set_ylabel('[S2] total (nM)', fontsize=12)
+axes[2].set_title('Total S2 at Receiver', fontsize=14, fontweight='bold')
+axes[2].grid(True, alpha=0.3)
+axes[2].set_ylim(bottom=0)
 
-# plt.tight_layout()
-# plt.savefig(f'Sender_receiver_timeseries_ccd={distance_between:.0f}_triangular_mesh.png', 
-#             dpi=300, bbox_inches='tight')
-# plt.show()
-
-
-
-
-
-# # =============================================================================
-# # 2D SPATIAL HEATMAP
-# # =============================================================================
-
-# print("\nGenerating spatial heatmap...")
-
-# fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-# fig.suptitle(f'Adaptive Mesh Spatial Distribution at t={time_points[-1]:.1f} hr', 
-#              fontsize=16, fontweight='bold')
-
-# # Get S2 values in nM
-# S2_values_nM = S2.value * 1000
-
-# # Plot 1: Scatter plot of S2 concentration (works better with non-uniform mesh)
-# x_coords = mesh.cellCenters[0].value
-# y_coords = mesh.cellCenters[1].value
-
-# scatter = axes[0].scatter(x_coords, y_coords, c=S2_values_nM, 
-#                           cmap='viridis', s=1, vmin=0)
-# axes[0].set_xlabel('X position (μm)', fontsize=12)
-# axes[0].set_ylabel('Y position (μm)', fontsize=12)
-# axes[0].set_title(f'S2 Concentration (nM)', fontsize=14, fontweight='bold')
-# axes[0].set_aspect('equal')
-
-# # Mark nodes with circles
-# circle_sender = plt.Circle((sender_center_x, sender_center_y), node_radius, 
-#                            fill=False, edgecolor='red', linewidth=2, label='Sender')
-# circle_receiver = plt.Circle((receiver_center_x, receiver_center_y), node_radius, 
-#                              fill=False, edgecolor='blue', linewidth=2, label='Receiver')
-# axes[0].add_patch(circle_sender)
-# axes[0].add_patch(circle_receiver)
-# axes[0].legend(fontsize=10)
-
-# cbar1 = plt.colorbar(scatter, ax=axes[0])
-# cbar1.set_label('[S2] (nM)', fontsize=11)
-
-# # Plot 2: Cross-section along line between nodes
-# # Find cells closest to the horizontal line at y = sender_center_y
-# y_tolerance = 50  # μm tolerance for selecting cells near the line
-# line_mask = np.abs(y_coords - sender_center_y) < y_tolerance
-# x_line = x_coords[line_mask]
-# S2_line = S2_values_nM[line_mask]
-
-# # Sort by x coordinate
-# sort_idx = np.argsort(x_line)
-# x_line_sorted = x_line[sort_idx]
-# S2_line_sorted = S2_line[sort_idx]
-
-# axes[1].plot(x_line_sorted, S2_line_sorted, 'b-', linewidth=1, alpha=0.7)
-# axes[1].axvline(x=sender_center_x, color='red', linestyle='--', linewidth=2, 
-#                 alpha=0.7, label='Sender')
-# axes[1].axvline(x=receiver_center_x, color='blue', linestyle='--', linewidth=2,
-#                 alpha=0.7, label='Receiver')
-# axes[1].set_xlabel('X position (μm)', fontsize=12)
-# axes[1].set_ylabel('[S2] (nM)', fontsize=12)
-# axes[1].set_title('S2 Profile Along Line Between Nodes', fontsize=14, fontweight='bold')
-# axes[1].grid(True, alpha=0.3)
-# axes[1].legend(fontsize=10)
-# axes[1].set_ylim(bottom=0)
-# axes[1].set_xlim([0, total_width])
-
-# plt.tight_layout()
-# plt.savefig(f'spatial_ccd={distance_between:.0f}_triangular_mesh.png', 
-#             dpi=300, bbox_inches='tight')
+plt.tight_layout()
+plt.savefig(f'timeseries_5mmx5mm_ccd={distance_between:.0f}_Claudes_triangular_mesh_dx={fine_dx}_speedup_V4.png', 
+            dpi=300, bbox_inches='tight')
 plt.show()
 
-print("\nAll plots saved successfully!")

@@ -1,0 +1,4 @@
+param_value,I2_final_mean,I2_final_std,S2_final_mean,S2_final_std,S2_total_final_mean,S2_total_final_std,half_time_mean,half_time_std,wall_time_mean,wall_time_std
+800.0,0.09999999999999998,,0.0,,0.0,,0.03333333333333333,,1471.3135385850037,
+1000.0,0.09999999999999999,,0.0,,0.0,,0.016666666666666666,,1469.2377510980004,
+1200.0,0.1,,0.0,,0.0,,,,1468.3565492769994,

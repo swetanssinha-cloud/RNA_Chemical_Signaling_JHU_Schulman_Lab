@@ -1,0 +1,38 @@
+{
+  "sweep_parameter": "distance_between",
+  "sweep_values": [
+    1000,
+    1100,
+    1200,
+    1300,
+    1500,
+    1600,
+    1800,
+    2000
+  ],
+  "n_replicates": 1,
+  "default_params": {
+    "D_solution": 150.0,
+    "D_gel": 60.0,
+    "k_p": 0.2,
+    "k_d_ds": 0.0003,
+    "k_d_ss": 0.0003,
+    "k_slow": 0.09999999999999999,
+    "k_fast": 1.0,
+    "I1O2_init": 0.1,
+    "I2_init": 0.1,
+    "Th2_init": 5.0,
+    "node_diameter": 75.0,
+    "distance_between": 300.0,
+    "total_width": 10000.0,
+    "total_height": 1000.0,
+    "fine_dx": 5.0,
+    "coarse_dx": 100.0,
+    "growth_rate": 1.5,
+    "cells_per_level": 3,
+    "dt": 60.0,
+    "total_time": 28800,
+    "save_interval_time": 60.0
+  },
+  "written": "2026-08-08 13:25:23"
+}

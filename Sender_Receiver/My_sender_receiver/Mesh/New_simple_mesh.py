@@ -9,6 +9,10 @@ import sys
 import matplotlib.pyplot as plt
 from matplotlib.collections import PolyCollection
 import sys
+import os
+import tempfile
+import time
+from fipy import Gmsh2D
 
 
 def create_gmsh_radial_mesh(
@@ -19,7 +23,7 @@ def create_gmsh_radial_mesh(
     min_cell_size=0.75,          # μm (finest mesh at node surface)
     max_cell_size=50.0,          # μm (coarsest mesh far from nodes)
     growth_rate=1.5,             # How fast mesh grows with distance
-    mesh_filename='radial_mesh.msh',
+    mesh_filename=None,
     visualize_gmsh=False,        # Show Gmsh GUI
     verbose=True
 ):
@@ -52,13 +56,15 @@ def create_gmsh_radial_mesh(
     
     Returns:
     --------
-    mesh : FiPy Gmsh2D mesh object
+    mesh_filename : path to saved Gmsh mesh file
     sender_center_x : float
     receiver_center_x : float
     y_center : float
     node_radius : float
     """
-    
+    if mesh_filename is None:
+        mesh_filename = "default_mesh.msh"
+
     node_radius = node_diameter / 2.0
     y_center = bath_height / 2.0
     
@@ -150,10 +156,10 @@ def create_gmsh_radial_mesh(
                                     distance_field_receiver_center])
 
     # =============================================================================
-    # CORRECTED: Use Threshold field for gradual refinement (matches reference image)
+    # Create Area where refinement is applied
     # =============================================================================
     # Define refinement zone: fine mesh extends this far from nodes
-    refinement_radius = 200.0  # μm - based on your reference image
+    refinement_radius = 200.0  # μm 
 
     # Create Threshold field for smooth transition
     # Keeps mesh fine out to refinement_radius, then gradually coarsens
@@ -164,14 +170,6 @@ def create_gmsh_radial_mesh(
     gmsh.model.mesh.field.setNumber(threshold_field, "DistMin", 0.0)                # Fine mesh starts at node
     gmsh.model.mesh.field.setNumber(threshold_field, "DistMax", refinement_radius)  # Fine mesh ends here
     gmsh.model.mesh.field.setNumber(threshold_field, "Sigmoid", 1)                  # Smooth transition
-
-    # if verbose:
-    #     print(f"\n✓ CORRECTED mesh refinement strategy:")
-    #     print(f"  At node surface (d=0): {min_cell_size:.3f} μm")
-    #     print(f"  From d=0 to d={refinement_radius:.0f} μm: stays ~{min_cell_size:.3f}-{min_cell_size*2:.1f} μm")
-    #     print(f"  Beyond d={refinement_radius:.0f} μm: smoothly grows to {max_cell_size:.1f} μm")
-    #     print(f"  Transition: Sigmoid (smooth, gradual)")
-    #     print(f"  → This matches your COMSOL reference image!")
         
     # Set this as the background mesh field
     gmsh.model.mesh.field.setAsBackgroundMesh(threshold_field)
@@ -187,7 +185,6 @@ def create_gmsh_radial_mesh(
     # =============================================================================
     # GENERATE MESH
     # =============================================================================
-    
     
     # Generate 2D mesh
     gmsh.model.mesh.generate(2)
@@ -212,37 +209,14 @@ def create_gmsh_radial_mesh(
     # SAVE MESH IN FORMAT 2.2 (FIPY COMPATIBLE)
     # =============================================================================
     
-    # THIS IS THE FIX: Force Gmsh to save in format 2.2
     gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)
     
-    # if verbose:
-    #     print(f"Saving mesh in Gmsh format 2.2 (FiPy compatible)...")
-    
     gmsh.write(mesh_filename)
-    
-    # Optional: Launch Gmsh GUI to visualize
-    if visualize_gmsh:
-        if verbose:
-            print("Launching Gmsh GUI...")
-        gmsh.fltk.run()
-    
+
     # Finalize Gmsh
     gmsh.finalize()
     
-    # =============================================================================
-    # IMPORT INTO FIPY
-    # =============================================================================
-    
-    if verbose:
-        print(f"Importing mesh into FiPy...")
-    
-    from fipy import Gmsh2D
-    mesh = Gmsh2D(mesh_filename)
-    
-    # if verbose:
-    #     print(f"✓ FiPy mesh created with {mesh.numberOfCells:,} cells\n")
-    
-    return mesh, sender_center_x, receiver_center_x, y_center
+    return mesh_filename, sender_center_x, receiver_center_x, y_center
 
 
 def visualize_gmsh_mesh_comprehensive(
@@ -518,7 +492,307 @@ def visualize_triangle_mesh(mesh, sender_x, receiver_x, y_center, node_radius,
     return fig
 
 # =============================================================================
-# EXAMPLE USAGE 
+# CONFORMAL MESH (use this one)
+# =============================================================================
+#
+# WHY THIS EXISTS
+# ---------------
+# create_gmsh_radial_mesh() above builds a rectangle and two disks but never
+# performs a boolean operation on them. Gmsh therefore meshes all three
+# surfaces INDEPENDENTLY, so the disks end up as separate, disconnected
+# islands sitting on top of the rectangle mesh. They share no vertices with
+# it, so no molecule can ever diffuse between a node and the bath.
+#
+# Diagnostic output on every distance tested (200-1200 um):
+#     connected components : 3      <- should be 1
+#     ~369 orphan cells per node, frozen at their initial values forever
+#
+# The fix is occ.fragment(), which imprints the disk boundaries into the
+# rectangle. The result is ONE conformal region: three faces that share their
+# boundary curves and their mesh nodes. Unlike occ.cut(), fragment KEEPS the
+# node interiors as part of the domain, which is what we need since I1O2, I2
+# and Th2 all live inside the gel.
+# =============================================================================
+
+def check_mesh_is_conformal(mesh_filename, verbose=True):
+    """
+    Parse a Gmsh 2.2 file and count how many disconnected pieces it contains.
+
+    Returns the number of connected components. Should always be 1.
+    Cheap enough to call after every mesh build.
+    """
+    import collections
+
+    with open(mesh_filename) as handle:
+        text = handle.read().split("\n")
+
+    j = text.index("$Elements")
+    n_elem = int(text[j + 1])
+
+    triangles = []
+    for k in range(n_elem):
+        parts = text[j + 2 + k].split()
+        if int(parts[1]) == 2:  # element type 2 == 3-node triangle
+            n_tags = int(parts[2])
+            triangles.append([int(v) for v in parts[3 + n_tags:]])
+
+    parent = list(range(len(triangles)))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    node_to_tri = collections.defaultdict(list)
+    for ti, tri in enumerate(triangles):
+        for v in tri:
+            node_to_tri[v].append(ti)
+
+    for tri_list in node_to_tri.values():
+        root = find(tri_list[0])
+        for t in tri_list[1:]:
+            rt = find(t)
+            if rt != root:
+                parent[rt] = root
+
+    n_components = len({find(t) for t in range(len(triangles))})
+
+    if verbose:
+        status = "OK" if n_components == 1 else "BAD - mesh is not conformal!"
+        print(f"  conformality check: {len(triangles)} triangles, "
+              f"{n_components} connected component(s)  [{status}]")
+
+    return n_components
+
+
+def create_conformal_radial_mesh(
+    bath_width=10000.0,            # um
+    bath_height=1000.0,            # um
+    node_diameter=75.0,            # um
+    distance_between_nodes=300.0,  # um, centre-to-centre
+    min_cell_size=5.0,             # um, finest cells at the node surfaces
+    max_cell_size=100.0,           # um, coarsest cells far away
+    growth_rate=1.5,               # cell size multiplier between rings
+    cells_per_level=3,             # how many cells wide each ring is
+    mesh_filename=None,
+    visualize_gmsh=False,          # open the Gmsh GUI after meshing
+    verbose=True,
+):
+    """
+    Build a radially-refined triangular mesh in which the two hydrogel nodes
+    are genuinely part of the domain.
+
+    Two differences from create_gmsh_radial_mesh():
+
+    1. occ.fragment() imprints the node disks into the bath, so the mesh is
+       ONE connected region instead of three overlapping pieces.
+
+    2. Cell size grows in discrete geometric RINGS rather than along a single
+       smooth sigmoid ramp. Ring i holds a constant size
+
+           size_i = min_cell_size * growth_rate**i
+
+       for roughly `cells_per_level` cells' worth of radial distance, then
+       steps up. The last ring is clamped to max_cell_size and reaches the
+       domain edge.
+
+       Why rings instead of a sigmoid: the sigmoid squeezed the entire
+       5 -> 100 um transition into a narrow band and produced neighbouring
+       cells differing in size by up to 1.99x. Rings bound that ratio by
+       construction (measured worst case 1.55 at growth_rate=1.5) and spread
+       the coarsening over a much wider band, at a cost of ~30% more cells.
+       Ring boundaries are derived from the cell sizes themselves, so they
+       rescale automatically when min_cell_size or max_cell_size change --
+       unlike the sigmoid, whose transition was pinned to a hard-coded
+       absolute distance.
+
+    NOTE: unlike the older create_gmsh_radial_mesh(), which accepted a
+    `growth_rate` argument and then silently ignored it, every parameter here
+    is used.
+
+    Returns
+    -------
+    mesh_filename    : str, path to the written .msh (Gmsh format 2.2)
+    sender_center_x  : float
+    receiver_center_x: float
+    y_center         : float
+    """
+    if mesh_filename is None:
+        mesh_filename = "conformal_mesh.msh"
+    mesh_filename = str(mesh_filename)
+
+    if min_cell_size < max_cell_size and growth_rate <= 1.0:
+        raise ValueError(
+            f"growth_rate must be > 1.0 to coarsen from {min_cell_size} um to "
+            f"{max_cell_size} um (got {growth_rate}); the ring schedule would "
+            f"never terminate.")
+    if cells_per_level <= 0:
+        raise ValueError(f"cells_per_level must be positive (got {cells_per_level})")
+
+    node_radius = node_diameter / 2.0
+    y_center = bath_height / 2.0
+    domain_center_x = bath_width / 2.0
+    sender_center_x = domain_center_x - distance_between_nodes / 2.0
+    receiver_center_x = domain_center_x + distance_between_nodes / 2.0
+
+    gmsh.initialize()
+    gmsh.option.setNumber("General.Terminal", 1 if verbose else 0)
+    gmsh.model.add("conformal_radial_mesh")
+
+    # ---------------------------------------------------------------- geometry
+    rectangle_tag = gmsh.model.occ.addRectangle(0, 0, 0, bath_width, bath_height)
+    sender_tag = gmsh.model.occ.addDisk(sender_center_x, y_center, 0,
+                                        node_radius, node_radius)
+    receiver_tag = gmsh.model.occ.addDisk(receiver_center_x, y_center, 0,
+                                          node_radius, node_radius)
+
+    # THE FIX. fragment() imprints the disks into the rectangle so that all
+    # three faces share boundary curves and, after meshing, share nodes.
+    fragments, _ = gmsh.model.occ.fragment(
+        [(2, rectangle_tag)],
+        [(2, sender_tag), (2, receiver_tag)],
+    )
+    gmsh.model.occ.synchronize()
+
+    # fragment() renumbers everything, so re-identify the faces by geometry.
+    surface_tags = [tag for dim, tag in fragments if dim == 2]
+
+    sender_surface = receiver_surface = None
+    bath_surfaces = []
+
+    for tag in surface_tags:
+        cx, cy, _ = gmsh.model.occ.getCenterOfMass(2, tag)
+        if abs(cx - sender_center_x) < 1.0 and abs(cy - y_center) < 1.0:
+            sender_surface = tag
+        elif abs(cx - receiver_center_x) < 1.0 and abs(cy - y_center) < 1.0:
+            receiver_surface = tag
+        else:
+            bath_surfaces.append(tag)
+
+    if sender_surface is None or receiver_surface is None:
+        gmsh.finalize()
+        raise RuntimeError(
+            "Could not identify the node surfaces after fragment(). "
+            f"Found surfaces {surface_tags} for nodes at x={sender_center_x} "
+            f"and x={receiver_center_x}."
+        )
+
+    # ------------------------------------------------------------ size fields
+    sender_curves = [abs(t) for _, t in gmsh.model.getBoundary(
+        [(2, sender_surface)], oriented=False, combined=False, recursive=False)]
+    receiver_curves = [abs(t) for _, t in gmsh.model.getBoundary(
+        [(2, receiver_surface)], oriented=False, combined=False, recursive=False)]
+
+    # Distance to each node's surface, and to each node's centre. Taking the
+    # minimum of all four keeps the interior of the nodes finely resolved too.
+    center_points = [
+        gmsh.model.occ.addPoint(sender_center_x, y_center, 0),
+        gmsh.model.occ.addPoint(receiver_center_x, y_center, 0),
+    ]
+    gmsh.model.occ.synchronize()
+
+    distance_fields = []
+    for curves in (sender_curves, receiver_curves):
+        f = gmsh.model.mesh.field.add("Distance")
+        gmsh.model.mesh.field.setNumbers(f, "CurvesList", curves)
+        gmsh.model.mesh.field.setNumber(f, "Sampling", 200)
+        distance_fields.append(f)
+
+    for point in center_points:
+        f = gmsh.model.mesh.field.add("Distance")
+        gmsh.model.mesh.field.setNumbers(f, "PointsList", [point])
+        gmsh.model.mesh.field.setNumber(f, "Sampling", 200)
+        distance_fields.append(f)
+
+    min_field = gmsh.model.mesh.field.add("Min")
+    gmsh.model.mesh.field.setNumbers(min_field, "FieldsList", distance_fields)
+
+    # ------------------------------------------------ geometric ring schedule
+    # levels[i]     = the cell size held throughout ring i
+    # boundaries[i] = distance from the node surface at which ring i begins
+    levels = [min_cell_size]
+    while levels[-1] < max_cell_size:
+        levels.append(min(levels[-1] * growth_rate, max_cell_size))
+
+    boundaries = [0.0]
+    for size in levels[:-1]:
+        boundaries.append(boundaries[-1] + cells_per_level * size)
+
+    if verbose:
+        print(f"\nStepped size field: {len(levels)} rings, "
+              f"growth_rate={growth_rate}, {cells_per_level} cells per ring")
+        for i, size in enumerate(levels):
+            lo = boundaries[i]
+            hi = boundaries[i + 1] if i + 1 < len(boundaries) else None
+            span = f"[{lo:7.1f}, {hi:7.1f})" if hi is not None else f"[{lo:7.1f},     inf)"
+            print(f"  ring {i}: {size:7.2f} um  for distance {span} um")
+
+    # Each ring is a Threshold that returns its own plateau size once past the
+    # ring's start, and a huge value before it. Taking the Min over all rings
+    # therefore yields, at any point, the size of the innermost ring that has
+    # already begun -- i.e. a staircase rather than a ramp.
+    threshold_ids = []
+    for i, size in enumerate(levels):
+        tid = gmsh.model.mesh.field.add("Threshold")
+        gmsh.model.mesh.field.setNumber(tid, "InField", min_field)
+        if i < len(levels) - 1:
+            transition = boundaries[i + 1]
+            eps = max(0.02, 0.02 * transition)   # narrow but non-zero riser
+            gmsh.model.mesh.field.setNumber(tid, "SizeMin", size)
+            gmsh.model.mesh.field.setNumber(tid, "SizeMax", 1e6)
+            gmsh.model.mesh.field.setNumber(tid, "DistMin", max(transition - eps, 0.0))
+            gmsh.model.mesh.field.setNumber(tid, "DistMax", transition + eps)
+        else:
+            # Coarsest ring: constant everywhere, so the Min combination can
+            # never exceed max_cell_size no matter how far out we go.
+            gmsh.model.mesh.field.setNumber(tid, "SizeMin", size)
+            gmsh.model.mesh.field.setNumber(tid, "SizeMax", size)
+            gmsh.model.mesh.field.setNumber(tid, "DistMin", boundaries[i])
+            gmsh.model.mesh.field.setNumber(tid, "DistMax", boundaries[i])
+        gmsh.model.mesh.field.setNumber(tid, "Sigmoid", 0)
+        threshold_ids.append(tid)
+
+    combined_field = gmsh.model.mesh.field.add("Min")
+    gmsh.model.mesh.field.setNumbers(combined_field, "FieldsList", threshold_ids)
+    gmsh.model.mesh.field.setAsBackgroundMesh(combined_field)
+
+    gmsh.option.setNumber("Mesh.MeshSizeExtendFromBoundary", 0)
+    gmsh.option.setNumber("Mesh.MeshSizeFromPoints", 0)
+    gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 0)
+    gmsh.option.setNumber("Mesh.Algorithm", 6)  # Frontal-Delaunay
+
+    # ------------------------------------------------- physical groups + write
+    # Tagging every surface means Gmsh still writes all elements. SaveAll is
+    # belt-and-braces in case a surface is missed.
+    gmsh.model.addPhysicalGroup(2, bath_surfaces, name="bath")
+    gmsh.model.addPhysicalGroup(2, [sender_surface], name="sender_node")
+    gmsh.model.addPhysicalGroup(2, [receiver_surface], name="receiver_node")
+
+    gmsh.model.mesh.generate(2)
+    gmsh.model.mesh.optimize("Netgen")
+
+    gmsh.option.setNumber("Mesh.MshFileVersion", 2.2)
+    gmsh.option.setNumber("Mesh.SaveAll", 1)
+    gmsh.write(mesh_filename)
+
+    if visualize_gmsh:
+        gmsh.fltk.run()
+
+    gmsh.finalize()
+
+    n_components = check_mesh_is_conformal(mesh_filename, verbose=verbose)
+    if n_components != 1:
+        raise RuntimeError(
+            f"Mesh {mesh_filename} has {n_components} disconnected pieces "
+            f"(expected 1). The nodes are not joined to the bath."
+        )
+
+    return mesh_filename, sender_center_x, receiver_center_x, y_center
+
+
+# =============================================================================
+# EXAMPLE USAGE
 # =============================================================================
 if __name__ == "__main__":
     print("\n" + "="*70)
@@ -526,16 +800,14 @@ if __name__ == "__main__":
     print("="*70)
     
     # Create mesh with geometric growth (matching your requirements)
-    mesh, sender_x, receiver_x, y_ctr = create_gmsh_radial_mesh(
+    mesh, sender_x, receiver_x, y_ctr = create_gmsh_radial_mesh_isolated(
         bath_width=10000.0,           # 1 cm
         bath_height=1000.0,           # 1 mm
         node_diameter=75.0,           # 75 μm diameter nodes
         distance_between_nodes=300.0, # 300 μm apart
         min_cell_size=0.75,          # 0.75 μm at node surface (for tanh)
         max_cell_size=50.0,          # 50 μm far away
-        growth_rate=1.5,             # Geometric growth factor
-        mesh_filename='radial_mesh.msh',
-        visualize_gmsh=False,        # Set True to see Gmsh GUI
+        growth_rate=1.5,             #Growth Factor       
         verbose=True
     )
     
@@ -547,10 +819,10 @@ if __name__ == "__main__":
     # print(f"Fine cells ONLY near nodes (no horizontal/vertical bands!)")
     
     # Visualize the mesh
-    print("\nGenerating comprehensive visualization...")
+    # print("\nGenerating comprehensive visualization...")
     # visualize_gmsh_mesh_comprehensive(
-    #     mesh, sender_x, receiver_x, y_ctr, radius, 300.0,
-    #     save_filename='gmsh_radial_mesh_comprehensive.png'
+    #     mesh, sender_x, receiver_x, y_ctr, distance_between=300.0, node_radius=37.5,
+    #     save_filename='gmsh_radial_mesh_isolated_comprehensive.png'
     # )
     
     # print("\n" + "="*70)

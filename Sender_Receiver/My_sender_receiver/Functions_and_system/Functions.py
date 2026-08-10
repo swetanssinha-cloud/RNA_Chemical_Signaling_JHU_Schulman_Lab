@@ -294,6 +294,34 @@ def initalize_variables(mesh, x,y, sender_center_x, receiver_center_x, receiver_
 
     return S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2
 
+def initalize_variables_speedup(mesh, x,y, sender_center_x, receiver_center_x, receiver_center_y, node_radius, I2_init, Th2_init, I1O2_init, D_gel, D_solution):
+    sender_center_y = receiver_center_y
+
+    sender_mask = (np.sqrt((x - sender_center_x)**2 + (y - sender_center_y)**2) <= node_radius)
+    receiver_mask = (np.sqrt((x - receiver_center_x)**2 + (y - receiver_center_y)**2) <= node_radius)
+
+
+
+    S2 = CellVariable(name="S2", mesh=mesh, value=0.0, hasOld=True)
+
+    I2 = CellVariable(name="I2", mesh=mesh, value=I2_init, hasOld=True)
+    I2.setValue(I2_init * receiver_mask)
+
+    Th2 = CellVariable(name="Th2", mesh=mesh, value=Th2_init, hasOld=True)
+    Th2.setValue(Th2_init * receiver_mask)
+
+    S2_I2 = CellVariable(name="S2_I2", mesh=mesh, value=0.0, hasOld=True)
+    S2_Th2 = CellVariable(name="S2_Th2", mesh=mesh, value=0.0, hasOld=True)
+
+    I1O2 = CellVariable(name="I1O2", mesh=mesh, value=I1O2_init)
+    I1O2.setValue(I1O2_init * sender_mask)
+
+    # Smooth spatially varying diffusion coefficient
+    D_S2 = CellVariable(name="D_S2", mesh=mesh, value=D_solution)
+    D_S2.setValue(D_gel * (sender_mask | receiver_mask) + D_solution * (~(sender_mask | receiver_mask)))
+
+    return S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2
+
 
 #You would then write this:
 #S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2 = initalize_variables(mesh, x,y, sender_center_x, receiver_center_x, receiver_center_y, node_radius, I2_init, Th2_init, I1O2_init, D_gel, D_solution)
