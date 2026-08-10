@@ -1,0 +1,52 @@
+{
+  "benchmark_case": {
+    "center_distance_um": 150.0,
+    "threshold_uM": 5.0,
+    "total_hours": 1.0,
+    "fipy_dx_um": 25.0
+  },
+  "fipy_reference": {
+    "script": "genelet_sender_receiver_fipy.py",
+    "dt_s": 30.0,
+    "final_receiver_I2_nM": 1.2104153381197207,
+    "final_receiver_total_RNA_nM": 5338.018382128014,
+    "warm_run_real_s": [
+      31.99,
+      31.51
+    ],
+    "warm_run_average_real_s": 31.75
+  },
+  "surrogate_same_dt": {
+    "script": "genelet_sender_receiver_surrogate.py",
+    "dt_s": 30.0,
+    "final_receiver_I2_nM": 1.162214,
+    "final_receiver_total_RNA_nM": 5348.463845,
+    "relative_error_I2_percent": 3.98,
+    "relative_error_total_RNA_percent": 0.20,
+    "warm_run_real_s": [
+      0.95,
+      1.0
+    ],
+    "warm_run_average_real_s": 0.975,
+    "speedup_vs_fipy": 32.56
+  },
+  "surrogate_default_dt": {
+    "script": "genelet_sender_receiver_surrogate.py",
+    "dt_s": 300.0,
+    "final_receiver_I2_nM": 1.159816,
+    "final_receiver_total_RNA_nM": 5348.692898,
+    "relative_error_I2_percent": 4.18,
+    "relative_error_total_RNA_percent": 0.20,
+    "warm_run_real_s": [
+      0.95,
+      0.9
+    ],
+    "warm_run_average_real_s": 0.925,
+    "speedup_vs_fipy": 34.32
+  },
+  "notes": [
+    "Timings are warm-run wall-clock timings in the rd-sim-2603 conda environment.",
+    "The surrogate is intended for fast receiver time-domain trends, not spatial fields.",
+    "Very early-time accuracy is weaker than hour-scale benchmark agreement."
+  ]
+}
