@@ -5,3 +5,4 @@ Plots to Show Profesor/
 animations/
 genelet_sender_receiver_fipy.py/
 genelet_sender_receiver_surrogate.py/
+surrogate_vs_fipy_benchmark.json/
