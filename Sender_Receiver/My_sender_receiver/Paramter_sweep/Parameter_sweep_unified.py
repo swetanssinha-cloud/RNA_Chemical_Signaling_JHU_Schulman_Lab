@@ -91,15 +91,15 @@ warnings.filterwarnings("ignore")
 # USER CONFIGURATION  -- this is the only block you normally edit
 # =============================================================================
 
-SWEEP_PARAMETER = "k_slow"
+# SWEEP_PARAMETER = "k_slow"
 
-SWEEP_VALUES = np.array([1,2,3,4,5])
-SWEEP_VALUES = SWEEP_VALUES * 5e4 * 1e-6
+# SWEEP_VALUES = np.array([1,2,3,4,5])
+# SWEEP_VALUES = SWEEP_VALUES * 5e4 * 1e-6
 
 # Examples for other sweeps (uncomment one):
 #   SWEEP_PARAMETER = "Th2_init";  SWEEP_VALUES = [0.1, 0.2, 0.5, 1.0, 2.0, 5.0]
 #   SWEEP_PARAMETER = "k_p";       SWEEP_VALUES = [0.02, 0.2, 2.0]
-#   SWEEP_PARAMETER = "k_d_ds";    SWEEP_VALUES = [3e-4, 6e-4, 9e-4]
+SWEEP_PARAMETER = "k_d_ds";    SWEEP_VALUES = np.array([0.2,0.25,(1/3), 0.5,1]) * 3e-4
 
 N_REPLICATES = 1
 
@@ -292,6 +292,8 @@ def run_single_simulation(param_value, replicate_id):
         save_every = max(1, int(params["save_interval_time"] / dt))
         node_radius = params["node_diameter"] / 2.0
 
+
+
         # ------------------------------------------------------------- mesh
         mesh_file = mesh_path_for(params)
         if not mesh_file.exists():
@@ -324,7 +326,7 @@ def run_single_simulation(param_value, replicate_id):
         eq = build_equations(
             S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2,
             k_p=params["k_p"], k_slow=params["k_slow"], k_fast=params["k_fast"],
-            k_d_ss=params["k_d_ss"], k_d_ds=params["k_d_ds"],
+            k_d_ss=params["k_d_ss"], k_d_ds=params["k_d_ss"],
         )
 
         # Probe cell 1: nearest to the receiver centre. Safe now that the mesh
