@@ -65,6 +65,7 @@ Two independent measurements are recorded at every save point:
 
 import json
 import os
+import re
 import sys
 import time
 import warnings
@@ -161,6 +162,33 @@ OUTPUT_DIR = Path(__file__).resolve().parent / f"sweep_{SWEEP_PARAMETER}_Improve
 # =============================================================================
 # MODEL
 # =============================================================================
+
+# Parameters that must move together. Each group is a set of names that are
+# always held equal: sweeping ANY member sets every member to the swept value.
+#
+# This exists because tying them together at the build_equations() call site
+# is easy to get backwards. Writing
+#     k_d_ss=params["k_d_ss"], k_d_ds=params["k_d_ss"]     # <- both from _ss
+# while sweeping k_d_ds means the swept key is never read, and all runs come
+# out bit-identical. Declaring the linkage here makes it direction-agnostic:
+# sweep either name and both follow.
+LINKED_PARAMETERS = [
+    {"k_d_ss", "k_d_ds"},
+]
+
+
+def apply_sweep_value(param_value):
+    """Build the parameter dict for one sweep point, honouring LINKED_PARAMETERS."""
+    params = dict(DEFAULT_PARAMS)
+    params[SWEEP_PARAMETER] = param_value
+
+    for group in LINKED_PARAMETERS:
+        if SWEEP_PARAMETER in group:
+            for name in group:
+                params[name] = param_value
+
+    return params
+
 
 def timeseries_path_for(param_value, replicate_id):
     """The durable record of one completed run."""
@@ -284,8 +312,7 @@ def run_single_simulation(param_value, replicate_id):
                 "success": True, "skipped": True}
 
     try:
-        params = dict(DEFAULT_PARAMS)
-        params[SWEEP_PARAMETER] = param_value
+        params = apply_sweep_value(param_value)
 
         dt = params["dt"]
         n_steps = int(params["total_time"] / dt)
@@ -326,7 +353,7 @@ def run_single_simulation(param_value, replicate_id):
         eq = build_equations(
             S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2,
             k_p=params["k_p"], k_slow=params["k_slow"], k_fast=params["k_fast"],
-            k_d_ss=params["k_d_ss"], k_d_ds=params["k_d_ss"],
+            k_d_ss=params["k_d_ss"], k_d_ds=params["k_d_ds"],
         )
 
         # Probe cell 1: nearest to the receiver centre. Safe now that the mesh
@@ -603,14 +630,22 @@ def collect_results_from_disk():
     is recovered simply by running the script again -- no simulation is
     repeated and no completed run is lost.
     """
+    # Tolerant of anything appended after the replicate number, so adding a
+    # suffix like "_5mmx5mm" to the filename does not make runs invisible.
+    pattern = re.compile(
+        rf"timeseries_{re.escape(SWEEP_PARAMETER)}="
+        rf"(?P<value>[-+0-9.eE]+)_rep=(?P<rep>\d+)")
+
     rows = []
     for path in sorted(OUTPUT_DIR.glob(f"timeseries_{SWEEP_PARAMETER}=*_rep=*.csv")):
-        stem = path.stem                       # timeseries_<param>=<value>_rep=<n>
+        match = pattern.search(path.stem)
+        if match is None:
+            print(f"  skipping unparseable filename: {path.name}")
+            continue
         try:
-            value_part, rep_part = stem.split("=")[1], stem.split("=")[-1]
-            param_value = float(value_part.rsplit("_rep", 1)[0])
-            replicate_id = int(rep_part)
-        except (ValueError, IndexError):
+            param_value = float(match.group("value"))
+            replicate_id = int(match.group("rep"))
+        except ValueError:
             print(f"  skipping unparseable filename: {path.name}")
             continue
 
@@ -683,11 +718,46 @@ def summarise():
     print(f"Wrote {OUTPUT_DIR / 'summary_stats.csv'}")
     print(f"Wrote {OUTPUT_DIR / 'run_config.json'}")
 
-    missing = sorted(set(SWEEP_VALUES) - set(raw["param_value"]))
+    missing = sorted(set(np.asarray(SWEEP_VALUES).tolist()) - set(raw["param_value"]))
     if missing:
         print(f"\nStill missing (re-run to fill these in): {missing}")
 
+    check_parameter_had_an_effect(raw)
+
     return stats
+
+
+def check_parameter_had_an_effect(raw):
+    """
+    Warn loudly if every run produced the same answer.
+
+    A swept parameter that never reaches the equations gives bit-identical
+    results, which look perfectly healthy in a CSV -- no crash, no zeros, no
+    failed gate. The only symptom is that the numbers do not move. This is the
+    one failure mode the in-run validation gates cannot see, so it is checked
+    here instead.
+    """
+    if raw["param_value"].nunique() < 2:
+        return
+
+    key = "I2_avg_final_nM"
+    if key not in raw.columns:
+        return
+
+    values = raw[key].to_numpy(dtype=float)
+    spread = np.nanmax(values) - np.nanmin(values)
+    scale = max(abs(np.nanmean(values)), 1e-30)
+
+    if spread / scale < 1e-12:
+        print("\n" + "!" * 78)
+        print(f"WARNING: every run returned the same {key} "
+              f"({values[0]:.12g}).")
+        print(f"'{SWEEP_PARAMETER}' varied across {raw['param_value'].nunique()} "
+              f"values but changed nothing, so it is almost certainly not")
+        print("reaching the equations. Check that build_equations() is passed")
+        print(f"params['{SWEEP_PARAMETER}'] and not a different key, and check")
+        print("LINKED_PARAMETERS if this parameter is tied to another.")
+        print("!" * 78)
 
 
 def plot(stats):

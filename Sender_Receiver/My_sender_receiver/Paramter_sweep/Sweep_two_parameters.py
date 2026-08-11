@@ -101,8 +101,8 @@ warnings.filterwarnings("ignore")
 PARAMETER_SWEPT_ONE = "Th2_init"
 VALUES_ONE = np.array([0.1, 0.2, 0.4, 0.8, 1.6])
 
-PARAMETER_SWEPT_TWO = "distance_between"
-VALUES_TWO = np.array([200.0, 300.0, 400.0])
+PARAMETER_SWEPT_TWO = "k_d_ds"
+VALUES_TWO = np.array([0.20,0.25,(1/3), 0.5, 1]) * 3e-4
 
 # Examples:
 #   PARAMETER_SWEPT_ONE = "k_slow";   VALUES_ONE = np.array([1, 2, 3, 4, 5]) * 5e4 * 1e-6
@@ -121,7 +121,7 @@ N_REPLICATES = 1
 # Total runs is len(VALUES_ONE) * len(VALUES_TWO) * N_REPLICATES -- this grows
 # fast. 5 x 3 = 15 runs at ~8 h simulated each is already a real workload.
 N_TASKS = len(VALUES_ONE) * len(VALUES_TWO) * N_REPLICATES
-N_PROCESSES = min(N_TASKS, max(1, cpu_count() - 1))
+N_PROCESSES = 5 #min(N_TASKS, max(1, cpu_count() - 1))
 
 
 # =============================================================================
@@ -225,7 +225,7 @@ def run_single_simulation(value_one, value_two, replicate_id):
         eq = build_equations(
             S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2,
             k_p=params["k_p"], k_slow=params["k_slow"], k_fast=params["k_fast"],
-            k_d_ss=params["k_d_ss"], k_d_ds=params["k_d_ds"],
+            k_d_ss=params["k_d_ds"], k_d_ds=params["k_d_ds"],
         )
 
         # Probe cell 1: nearest to the receiver centre (COMSOL-comparable).
@@ -542,9 +542,13 @@ def summarise():
                 .reset_index())
 
     # One rectangular CSV per headline metric: rows = P1, columns = P2.
+    # Labels are formatted with %g so a value like 0.05 is not written out as
+    # 0.049999999999999996 in the header.
     for metric in ("I2_center_final_nM", "I2_edge_final_nM",
                    "half_time_center_hr", "half_time_edge_hr"):
         grid = stats.pivot(index="value_one", columns="value_two", values=metric)
+        grid.index = [f"{v:g}" for v in grid.index]
+        grid.columns = [f"{v:g}" for v in grid.columns]
         grid.index.name = PARAMETER_SWEPT_ONE
         grid.columns.name = PARAMETER_SWEPT_TWO
         grid.to_csv(OUTPUT_DIR / f"grid_{metric}.csv")
