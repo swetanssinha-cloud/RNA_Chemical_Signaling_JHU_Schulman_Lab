@@ -39,7 +39,7 @@ Th2_init = I2_init * 4 #(in uM) -
 node_diameter = 75
 node_radius = node_diameter / 2
 bath_margin = 250
-distance_between = 300 # Test at large distance
+distance_between = 200 # Test at large distance
 total_width = 5000 #10000 μm = 1 cm
 total_height = 5000 #1000 μm = 1 mm
 fine_dx = 5 # Speed it up so use 5um for fine mesh
@@ -161,7 +161,7 @@ for step in range(n_steps):
     sweep = 0
     max_sweeps = 10
     
-    while res > 1e-6 and sweep < max_sweeps:
+    while res > 1e-5 and sweep < max_sweeps:
         res = eq.sweep(dt=dt)
         sweep += 1
     
@@ -248,7 +248,7 @@ df = pd.DataFrame({
     'S2_total (nM)': S2_total_concentration_nM})
 
 # Save to CSV
-csv_filename = f'timeseries_5mmx5mm_ccd={distance_between:.0f}_Claudes_triangular_mesh_dx={fine_dx}_speedup_V4.csv'
+csv_filename = f'timeseries_5mmx5mm_ccd={distance_between:.0f}_new_parameters.csv'
 df.to_csv(csv_filename, index=False)
 # print(f"Time series data saved to '{csv_filename}'")
 
@@ -286,7 +286,7 @@ axes[2].grid(True, alpha=0.3)
 axes[2].set_ylim(bottom=0)
 
 plt.tight_layout()
-plt.savefig(f'timeseries_5mmx5mm_ccd={distance_between:.0f}_Claudes_triangular_mesh_dx={fine_dx}_speedup_V4.png', 
+plt.savefig(f'timeseries_5mmx5mm_ccd={distance_between:.0f}_new_parameters.png', 
             dpi=300, bbox_inches='tight')
 plt.show()
 

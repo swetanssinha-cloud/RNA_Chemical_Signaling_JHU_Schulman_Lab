@@ -7,12 +7,18 @@ completely untouched and still handles 1-D sweeps.
 Every piece of PHYSICS is imported from Parameter_sweep_unified:
 
     initialize_fields()   field/mask/diffusivity setup
-    build_equations()     the coupled PDE system
+    build_S2_equation()   S2's diffusion-reaction PDE (the only variable
+                          with a DiffusionTerm; see reaction_pair_step())
+    reaction_pair_step()  closed-form backward-Euler update for I2/S2_I2
+                          and Th2/S2_Th2 -- no sparse solve needed
     mesh_path_for()       deterministic mesh filenames (so meshes are SHARED
                           with the 1-D sweeps -- nothing is rebuilt needlessly)
     half_time()           half-way-point metric
     DEFAULT_PARAMS        the validated baseline
     MESH_AFFECTING        which parameters force a new mesh
+    MAX_SWEEPS, SWEEP_RESIDUAL_TARGET, SWEEP_PLATEAU_TOL
+                          split-solver sweep control (see item 6 in
+                          Parameter_sweep_unified.py's module docstring)
 
 so the equations here are identical by construction. If you change the model,
 change it in Parameter_sweep_unified.py and both sweeps follow.
@@ -73,7 +79,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from fipy import Gmsh2D
+from fipy import Gmsh2D, LinearLUSolver
 
 HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = HERE.parent
@@ -83,12 +89,16 @@ sys.path.insert(0, str(HERE))
 from Mesh.New_simple_mesh import create_conformal_radial_mesh
 from Parameter_sweep_unified import (
     DEFAULT_PARAMS,
+    MAX_SWEEPS,
     MESH_AFFECTING,
     MESH_DIR,
-    build_equations,
+    SWEEP_PLATEAU_TOL,
+    SWEEP_RESIDUAL_TARGET,
+    build_S2_equation,
     half_time,
     initialize_fields,
     mesh_path_for,
+    reaction_pair_step,
 )
 
 warnings.filterwarnings("ignore")
@@ -220,13 +230,14 @@ def run_single_simulation(value_one, value_two, replicate_id):
             raise RuntimeError(
                 f"Only {receiver_mask.sum()} cells inside the receiver node.")
 
-        # NOTE: k_d_ds is passed as k_d_ds here. The 1-D script passes
-        # params["k_d_ss"] into this slot -- see the module docstring.
-        eq = build_equations(
-            S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2,
+        # NOTE: k_d_ss is pinned to params["k_d_ds"] here, same as the 1-D
+        # script's LINKED_PARAMETERS -- see the module docstring.
+        eq_S2 = build_S2_equation(
+            S2, I2, Th2, I1O2, D_S2,
             k_p=params["k_p"], k_slow=params["k_slow"], k_fast=params["k_fast"],
-            k_d_ss=params["k_d_ds"], k_d_ds=params["k_d_ds"],
+            k_d_ss=params["k_d_ds"],
         )
+        s2_solver = LinearLUSolver(tolerance=1e-10)
 
         # Probe cell 1: nearest to the receiver centre (COMSOL-comparable).
         probe_idx = int(np.argmin(np.hypot(x - receiver_x, y - y_center)))
@@ -268,9 +279,32 @@ def run_single_simulation(value_one, value_two, replicate_id):
 
             res = 1e10
             n_sweeps = 0
-            while res > 1e-6 and n_sweeps < 10:
-                res = eq.sweep(dt=dt)
+            prev_res = None
+            while n_sweeps < MAX_SWEEPS:
+                S2_guess = S2.value
+
+                # NOTE: k_off is params["k_d_ds"] for both pairs, matching the
+                # k_d_ss=params["k_d_ds"] pin above.
+                I2_new, S2_I2_new = reaction_pair_step(
+                    S2_guess, I2.old.value, S2_I2.old.value,
+                    params["k_slow"], params["k_d_ds"], dt)
+                Th2_new, S2_Th2_new = reaction_pair_step(
+                    S2_guess, Th2.old.value, S2_Th2.old.value,
+                    params["k_fast"], params["k_d_ds"], dt)
+
+                I2.setValue(I2_new)
+                S2_I2.setValue(S2_I2_new)
+                Th2.setValue(Th2_new)
+                S2_Th2.setValue(S2_Th2_new)
+
+                res = eq_S2.sweep(dt=dt, solver=s2_solver)
                 n_sweeps += 1
+
+                if res < SWEEP_RESIDUAL_TARGET:
+                    break
+                if prev_res is not None and abs(res - prev_res) < SWEEP_PLATEAU_TOL:
+                    break
+                prev_res = res
 
             if step % save_every == 0:
                 sample(step)

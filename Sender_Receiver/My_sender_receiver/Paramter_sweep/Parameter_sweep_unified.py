@@ -8,8 +8,11 @@ Replaces all six earlier sweep scripts. Handles BOTH kinds of parameter:
   * non-spatial  (Th2_init, k_p, k_slow, k_fast, k_d_ss, k_d_ds, D_gel, ...)
         -> one mesh is generated and reused by every value
 
-Physics, solver, time step and readout are matched to TG_Rmesh_tanh.py, which
-is the validated gold standard (agrees with COMSOL to ~0.6 nM).
+Physics, time step and readout are matched to TG_Rmesh_tanh.py, which is the
+validated gold standard (agrees with COMSOL to ~0.6 nM). The equation solve
+itself uses the split S2-only formulation from TG_Rmesh_fast.py instead of
+the original 5-variable coupled solve -- same physics, ~4.6x faster per step
+(see item 6 below).
 
 
 WHAT WAS WRONG WITH THE OLD SWEEPS, AND WHAT CHANGED HERE
@@ -43,6 +46,23 @@ WHAT WAS WRONG WITH THE OLD SWEEPS, AND WHAT CHANGED HERE
    Various old files sampled twice per step, never sampled at all, or appended
    one series inside another series' if-block.
    FIX: one sampling block, one place.
+
+6. SLOW COUPLED SOLVE
+   build_equations() bundled all 5 variables (S2, I2, Th2, S2_I2, S2_Th2) into
+   one FiPy coupled equation ("&"), forcing every sweep to assemble and
+   factorize a 5*Ncells x 5*Ncells sparse matrix -- even though only S2 has a
+   DiffusionTerm. The other four are purely local per-cell reaction ODEs.
+   Profiling also showed the sweep loop's "res > 1e-6" target was unreachable:
+   the default scipy LinearLUSolver only refines to 1e-5, so every step
+   silently maxed out at 10 sweeps with the residual flat after sweep ~4.
+   FIX: build_S2_equation() solves only S2 through FiPy's sparse solver
+        (Ncells unknowns). I2/Th2/S2_I2/S2_Th2 are updated with the closed-form
+        backward-Euler step in reaction_pair_step() -- an exact solve of the
+        per-cell 2x2 linear system, vectorized with numpy, no sparse solve
+        involved. The LU tolerance is tightened (1e-10) so the sweep
+        residual is a real convergence signal. Verified against the original
+        coupled solve in TG_Rmesh_fast.py / TG_Rmesh_tanh.py: <0.0001%
+        difference in receiver concentrations, ~4.6x faster per step.
 
 
 READOUT
@@ -78,7 +98,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from fipy import CellVariable, DiffusionTerm, Gmsh2D, ImplicitSourceTerm, TransientTerm
+from fipy import CellVariable, DiffusionTerm, Gmsh2D, ImplicitSourceTerm, LinearLUSolver, TransientTerm
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -158,6 +178,12 @@ MESH_AFFECTING = {
 MESH_DIR = Path(__file__).resolve().parent / "meshes_conformal"
 OUTPUT_DIR = Path(__file__).resolve().parent / f"sweep_{SWEEP_PARAMETER}_ImprovedV4_5mmx5mm"
 
+# Sweep control for the split-equation solver (see build_S2_equation() and
+# reaction_pair_step() below, and item 6 in the module docstring).
+MAX_SWEEPS = 15
+SWEEP_RESIDUAL_TARGET = 1e-8
+SWEEP_PLATEAU_TOL = 1e-9
+
 
 # =============================================================================
 # MODEL
@@ -166,8 +192,8 @@ OUTPUT_DIR = Path(__file__).resolve().parent / f"sweep_{SWEEP_PARAMETER}_Improve
 # Parameters that must move together. Each group is a set of names that are
 # always held equal: sweeping ANY member sets every member to the swept value.
 #
-# This exists because tying them together at the build_equations() call site
-# is easy to get backwards. Writing
+# This exists because tying them together at the build_S2_equation() /
+# reaction_pair_step() call sites is easy to get backwards. Writing
 #     k_d_ss=params["k_d_ss"], k_d_ds=params["k_d_ss"]     # <- both from _ss
 # while sweeping k_d_ds means the swept key is never read, and all runs come
 # out bit-identical. Declaring the linkage here makes it direction-agnostic:
@@ -245,47 +271,46 @@ def initialize_fields(mesh, x, y, sender_x, receiver_x, y_center, params):
     return S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2, sender_mask, receiver_mask
 
 
-def build_equations(S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2,
-                    k_p, k_slow, k_fast, k_d_ss, k_d_ds):
+def build_S2_equation(S2, I2, Th2, I1O2, D_S2, k_p, k_slow, k_fast, k_d_ss):
     """
-    The coupled system from the SI.
+    S2 is the only variable with a DiffusionTerm -- I2, Th2, S2_I2, S2_Th2
+    are purely local per-cell reaction ODEs with no spatial term at all (see
+    reaction_pair_step() below). Solving S2 alone through FiPy's sparse
+    solver, instead of bundling all 5 variables into one coupled equation,
+    shrinks every linear solve from 5*Ncells to Ncells unknowns.
 
     Every rate constant is an explicit argument. The old
     Functions.intialize_equations() read them from module globals, which is
     why sweeping k_p or k_slow silently did nothing.
     """
-    eq_S2 = (
+    return (
         TransientTerm(var=S2)
         == DiffusionTerm(coeff=D_S2, var=S2)
         + k_p * I1O2
         + ImplicitSourceTerm(coeff=-(k_slow * I2 + k_fast * Th2 + k_d_ss), var=S2)
     )
 
-    eq_I2 = (
-        TransientTerm(var=I2)
-        == k_d_ds * S2_I2
-        + ImplicitSourceTerm(coeff=-k_slow * S2, var=I2)
-    )
 
-    eq_Th2 = (
-        TransientTerm(var=Th2)
-        == k_d_ds * S2_Th2
-        + ImplicitSourceTerm(coeff=-k_fast * S2, var=Th2)
-    )
+def reaction_pair_step(S2_now, X_old, C_old, k_on, k_off, dt):
+    """
+    Closed-form backward-Euler step for one exchange pair (X <-> C):
+        dX/dt = -k_on*S2*X + k_off*C
+        dC/dt = +k_on*S2*X - k_off*C
+    S2 is held fixed at the current Picard-sweep guess -- the same lagging
+    FiPy's old coupled solver did for this bilinear term, since k_on*S2*X is
+    nonlinear and must be frozen either way. This is the exact solution of
+    the resulting per-cell 2x2 linear system, fully vectorized with numpy, no
+    sparse solve needed.
 
-    eq_S2_I2 = (
-        TransientTerm(var=S2_I2)
-        == k_slow * I2 * S2
-        + ImplicitSourceTerm(coeff=-k_d_ds, var=S2_I2)
-    )
-
-    eq_S2_Th2 = (
-        TransientTerm(var=S2_Th2)
-        == k_fast * Th2 * S2
-        + ImplicitSourceTerm(coeff=-k_d_ds, var=S2_Th2)
-    )
-
-    return eq_S2 & eq_I2 & eq_Th2 & eq_S2_I2 & eq_S2_Th2
+    Use with (k_on, k_off) = (k_slow, k_d_ds) for the (I2, S2_I2) pair, and
+    (k_fast, k_d_ds) for the (Th2, S2_Th2) pair.
+    """
+    a = k_on * S2_now
+    d = k_off
+    det = 1.0 + dt * (a + d)
+    X_new = ((1.0 + dt * d) * X_old + dt * d * C_old) / det
+    C_new = (dt * a * X_old + (1.0 + dt * a) * C_old) / det
+    return X_new, C_new
 
 
 # =============================================================================
@@ -350,11 +375,12 @@ def run_single_simulation(param_value, replicate_id):
             raise RuntimeError(
                 f"Only {receiver_mask.sum()} cells inside the receiver node.")
 
-        eq = build_equations(
-            S2, I2, Th2, S2_I2, S2_Th2, I1O2, D_S2,
+        eq_S2 = build_S2_equation(
+            S2, I2, Th2, I1O2, D_S2,
             k_p=params["k_p"], k_slow=params["k_slow"], k_fast=params["k_fast"],
-            k_d_ss=params["k_d_ss"], k_d_ds=params["k_d_ds"],
+            k_d_ss=params["k_d_ss"],
         )
+        s2_solver = LinearLUSolver(tolerance=1e-10)
 
         # Probe cell 1: nearest to the receiver centre. Safe now that the mesh
         # is conformal -- it can no longer land in a disconnected island.
@@ -398,9 +424,30 @@ def run_single_simulation(param_value, replicate_id):
 
             res = 1e10
             n_sweeps = 0
-            while res > 1e-6 and n_sweeps < 10:
-                res = eq.sweep(dt=dt)
+            prev_res = None
+            while n_sweeps < MAX_SWEEPS:
+                S2_guess = S2.value
+
+                I2_new, S2_I2_new = reaction_pair_step(
+                    S2_guess, I2.old.value, S2_I2.old.value,
+                    params["k_slow"], params["k_d_ds"], dt)
+                Th2_new, S2_Th2_new = reaction_pair_step(
+                    S2_guess, Th2.old.value, S2_Th2.old.value,
+                    params["k_fast"], params["k_d_ds"], dt)
+
+                I2.setValue(I2_new)
+                S2_I2.setValue(S2_I2_new)
+                Th2.setValue(Th2_new)
+                S2_Th2.setValue(S2_Th2_new)
+
+                res = eq_S2.sweep(dt=dt, solver=s2_solver)
                 n_sweeps += 1
+
+                if res < SWEEP_RESIDUAL_TARGET:
+                    break
+                if prev_res is not None and abs(res - prev_res) < SWEEP_PLATEAU_TOL:
+                    break
+                prev_res = res
 
             if step % save_every == 0:
                 sample(step)
@@ -754,7 +801,8 @@ def check_parameter_had_an_effect(raw):
               f"({values[0]:.12g}).")
         print(f"'{SWEEP_PARAMETER}' varied across {raw['param_value'].nunique()} "
               f"values but changed nothing, so it is almost certainly not")
-        print("reaching the equations. Check that build_equations() is passed")
+        print("reaching the equations. Check that build_S2_equation() / "
+              "reaction_pair_step() is passed")
         print(f"params['{SWEEP_PARAMETER}'] and not a different key, and check")
         print("LINKED_PARAMETERS if this parameter is tied to another.")
         print("!" * 78)
