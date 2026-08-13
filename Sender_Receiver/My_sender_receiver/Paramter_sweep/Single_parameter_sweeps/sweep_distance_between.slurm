@@ -4,7 +4,7 @@
 #SBATCH --account=rschulm3_startup
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=3                # 9 sweep values, mesh-affecting -> 9 workers
+#SBATCH --cpus-per-task=9                # 9 sweep values, mesh-affecting -> 9 workers
 #SBATCH --mem=60G
 #SBATCH --time=01:00:00
 #SBATCH --output=%x_%j.out
