@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=distance_between_sweep
-#SBATCH --partition=parallel               # grabs individual nodes bc I'm greedy
+#SBATCH --job-name=k_d_ss_sweep
+#SBATCH --partition=parallel
 #SBATCH --account=rschulm3_startup
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=9               # 10 sweep values + 1 spare core (Pool uses cpu_count()-1 workers)
-#SBATCH --mem=120G                        # ~4G/core, generous for an 11k-cell mesh
-#SBATCH --time=02:00:00                  # ~7 min/sim x 1 batch + mesh build + overhead, with margin
+#SBATCH --cpus-per-task=30                # 50 sweep values / 30 workers = 2 batches
+#SBATCH --mem=120G
+#SBATCH --time=01:00:00
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 
@@ -37,4 +37,4 @@ gmsh --version
 
 # --- run -----------------------------------------------------------------
 cd "$SLURM_SUBMIT_DIR"
-srun python Parameter_sweep_unified.py
+srun python sweep_k_d_ss.py
