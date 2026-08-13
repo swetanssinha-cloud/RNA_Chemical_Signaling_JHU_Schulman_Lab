@@ -4,7 +4,7 @@
 #SBATCH --account=rschulm3_startup
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=30                # 50 sweep values / 30 workers = 2 batches
+#SBATCH --cpus-per-task=3                # 50 sweep values / 30 workers = 2 batches
 #SBATCH --mem=120G
 #SBATCH --time=01:00:00
 #SBATCH --output=%x_%j.out
