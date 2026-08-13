@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=k_d_ss_sweep
+#SBATCH --job-name=distance_between_sweep
 #SBATCH --partition=parallel               # grabs individual nodes bc I'm greedy
 #SBATCH --account=rschulm3_startup
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=30               # 10 sweep values + 1 spare core (Pool uses cpu_count()-1 workers)
+#SBATCH --cpus-per-task=9               # 10 sweep values + 1 spare core (Pool uses cpu_count()-1 workers)
 #SBATCH --mem=120G                        # ~4G/core, generous for an 11k-cell mesh
-#SBATCH --time=01:00:00                  # ~7 min/sim x 1 batch + mesh build + overhead, with margin
+#SBATCH --time=02:00:00                  # ~7 min/sim x 1 batch + mesh build + overhead, with margin
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 
