@@ -1,5 +1,5 @@
 {
-  "sweep_parameter": "k_d_ds",
+  "sweep_parameter": "k_d_ss",
   "sweep_values": "[3.0e-05 6.0e-05 7.5e-05 9.0e-05 1.2e-04]",
   "n_replicates": 1,
   "default_params": {
@@ -25,5 +25,5 @@
     "total_time": 28800,
     "save_interval_time": 60.0
   },
-  "written": "2026-08-13 08:28:56"
+  "written": "2026-08-12 18:39:26"
 }

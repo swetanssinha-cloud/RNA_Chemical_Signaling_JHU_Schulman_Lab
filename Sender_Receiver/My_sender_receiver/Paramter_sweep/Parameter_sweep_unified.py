@@ -67,20 +67,15 @@ WHAT WAS WRONG WITH THE OLD SWEEPS, AND WHAT CHANGED HERE
 
 READOUT
 -------
-Two independent measurements are recorded at every save point:
+One measurement is recorded at every save point:
 
   *_center : value in the single cell nearest the receiver centre.
              This is what TG_Rmesh_tanh.py does AND what COMSOL does
              (its exports are "Table 1 - Point Evaluation 1"), so this is
              the column to compare against COMSOL.
 
-  *_edge   : value in the single cell nearest a point on the receiver
-             node's boundary (on the side facing the sender). This shows
-             how the signal looks right at the gel surface, as opposed to
-             the node centre.
-
-  (The node-volume-averaged "_avg" readout has been removed -- only the
-  centre-point and edge-point probes are recorded now.)
+  (The node-volume-averaged "_avg" readout and the node-edge probe have both
+  been removed -- only the centre-point probe is recorded now.)
 """
 
 import json
@@ -120,7 +115,7 @@ warnings.filterwarnings("ignore")
 # Examples for other sweeps (uncomment one):
 #   SWEEP_PARAMETER = "Th2_init";  SWEEP_VALUES = [0.1, 0.2, 0.5, 1.0, 2.0, 5.0]
 #   SWEEP_PARAMETER = "k_p";       SWEEP_VALUES = [0.02, 0.2, 2.0]
-SWEEP_PARAMETER = "k_d_ds";    SWEEP_VALUES = np.array([0.2,0.25,(1/3), 0.5,1]) * 3e-4
+SWEEP_PARAMETER = "k_d_ds";    SWEEP_VALUES = np.linspace(0.1, 0.4, 10) * 3e-4
 
 N_REPLICATES = 1
 
@@ -189,37 +184,29 @@ SWEEP_PLATEAU_TOL = 1e-9
 # MODEL
 # =============================================================================
 
-# Parameters that must move together. Each group is a set of names that are
-# always held equal: sweeping ANY member sets every member to the swept value.
-#
-# This exists because tying them together at the build_S2_equation() /
-# reaction_pair_step() call sites is easy to get backwards. Writing
-#     k_d_ss=params["k_d_ss"], k_d_ds=params["k_d_ss"]     # <- both from _ss
-# while sweeping k_d_ds means the swept key is never read, and all runs come
-# out bit-identical. Declaring the linkage here makes it direction-agnostic:
-# sweep either name and both follow.
-LINKED_PARAMETERS = [
-    {"k_d_ss", "k_d_ds"},
-]
-
-
 def apply_sweep_value(param_value):
-    """Build the parameter dict for one sweep point, honouring LINKED_PARAMETERS."""
+    """Build the parameter dict for one sweep point."""
     params = dict(DEFAULT_PARAMS)
     params[SWEEP_PARAMETER] = param_value
-
-    for group in LINKED_PARAMETERS:
-        if SWEEP_PARAMETER in group:
-            for name in group:
-                params[name] = param_value
-
     return params
 
 
-def timeseries_path_for(param_value, replicate_id):
-    """The durable record of one completed run."""
+def timeseries_path_for(param_value, replicate_id, params):
+    """
+    The durable record of one completed run.
+
+    Encodes the actual k_d_ss and k_d_ds values used, not just the swept
+    parameter -- these two used to be forced equal (LINKED_PARAMETERS), so a
+    run from back then and a run now can share the same SWEEP_PARAMETER value
+    while using different physics (e.g. k_d_ss=k_d_ds=6e-5 vs the current
+    k_d_ss=3e-4 default with k_d_ds=6e-5 swept). Without this, the old file
+    would be mistaken for a completed run of the new configuration and
+    silently skipped.
+    """
     return OUTPUT_DIR / (
-        f"timeseries_{SWEEP_PARAMETER}={param_value:g}_rep={replicate_id}_5mmx5mm.csv")
+        f"timeseries_{SWEEP_PARAMETER}={param_value:g}_rep={replicate_id}"
+        f"_kdss={params['k_d_ss']:g}_kdds={params['k_d_ds']:g}"
+        f"_5mmx5mm_speedup_newparameters.csv")
 
 
 def mesh_path_for(params):
@@ -327,18 +314,18 @@ def run_single_simulation(param_value, replicate_id):
     label = f"{SWEEP_PARAMETER}={param_value:g} rep={replicate_id}"
     start_wall = time.perf_counter()
 
+    params = apply_sweep_value(param_value)
+
     # Resume: a completed run already has its time series on disk, and every
     # summary number is recomputed from that file, so there is nothing to gain
     # by running it again.
-    existing = timeseries_path_for(param_value, replicate_id)
+    existing = timeseries_path_for(param_value, replicate_id, params)
     if existing.exists():
         print(f"  SKIP {label:<38} already complete ({existing.name})", flush=True)
         return {"param_value": param_value, "replicate_id": replicate_id,
                 "success": True, "skipped": True}
 
     try:
-        params = apply_sweep_value(param_value)
-
         dt = params["dt"]
         n_steps = int(params["total_time"] / dt)
         save_every = max(1, int(params["save_interval_time"] / dt))
@@ -382,15 +369,9 @@ def run_single_simulation(param_value, replicate_id):
         )
         s2_solver = LinearLUSolver(tolerance=1e-10)
 
-        # Probe cell 1: nearest to the receiver centre. Safe now that the mesh
+        # Probe cell: nearest to the receiver centre. Safe now that the mesh
         # is conformal -- it can no longer land in a disconnected island.
         probe_idx = int(np.argmin(np.hypot(x - receiver_x, y - y_center)))
-
-        # Probe cell 2: nearest to a point on the receiver node's edge, on the
-        # side facing the sender (i.e. the near edge of the gel).
-        edge_x = receiver_x - node_radius
-        edge_y = y_center
-        edge_idx = int(np.argmin(np.hypot(x - edge_x, y - edge_y)))
 
         # ------------------------------------------------------------ storage
         rows = []
@@ -404,12 +385,6 @@ def run_single_simulation(param_value, replicate_id):
                     float(S2.value[probe_idx])
                     + float(S2_I2.value[probe_idx])
                     + float(S2_Th2.value[probe_idx])) * 1e3,
-                "I2_edge_nM": float(I2.value[edge_idx]) * 1e3,
-                "S2_free_edge_nM": float(S2.value[edge_idx]) * 1e3,
-                "S2_total_edge_nM": (
-                    float(S2.value[edge_idx])
-                    + float(S2_I2.value[edge_idx])
-                    + float(S2_Th2.value[edge_idx])) * 1e3,
             })
 
         sample(0)   # t = 0
@@ -468,7 +443,7 @@ def run_single_simulation(param_value, replicate_id):
                 "at exactly zero). This is the signature of a disconnected mesh.")
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        ts_file = timeseries_path_for(param_value, replicate_id)
+        ts_file = timeseries_path_for(param_value, replicate_id, params)
 
         # Write to a temporary file and rename. os.replace is atomic, so an
         # interruption (or a full disk) can never leave a half-written CSV
@@ -492,7 +467,6 @@ def run_single_simulation(param_value, replicate_id):
 
         print(f"  OK   {label:<38} "
               f"I2_center={final['I2_center_nM']:7.2f} nM  "
-              f"I2_edge={final['I2_edge_nM']:7.2f} nM  "
               f"S2tot_center={final['S2_total_center_nM']:8.2f} nM  "
               f"[{wall/60:.1f} min]", flush=True)
 
@@ -502,13 +476,8 @@ def run_single_simulation(param_value, replicate_id):
             "I2_center_final_nM": final["I2_center_nM"],
             "S2_free_center_final_nM": final["S2_free_center_nM"],
             "S2_total_center_final_nM": final["S2_total_center_nM"],
-            "I2_edge_final_nM": final["I2_edge_nM"],
-            "S2_free_edge_final_nM": final["S2_free_edge_nM"],
-            "S2_total_edge_final_nM": final["S2_total_edge_nM"],
             "half_time_center_hr": half_time(df["time_hours"].values,
                                              df["I2_center_nM"].values),
-            "half_time_edge_hr": half_time(df["time_hours"].values,
-                                           df["I2_edge_nM"].values),
             "n_cells": int(mesh.numberOfCells),
             "wall_time_s": wall,
             "timeseries_file": str(ts_file),
@@ -637,8 +606,7 @@ def run_sweep():
 
 METRICS = [
     "I2_center_final_nM", "S2_free_center_final_nM", "S2_total_center_final_nM",
-    "I2_edge_final_nM", "S2_free_edge_final_nM", "S2_total_edge_final_nM",
-    "half_time_center_hr", "half_time_edge_hr",
+    "half_time_center_hr",
 ]
 
 
@@ -658,13 +626,8 @@ def scalars_from_timeseries(df, param_value, replicate_id):
         "I2_center_final_nM": float(final["I2_center_nM"]),
         "S2_free_center_final_nM": float(final["S2_free_center_nM"]),
         "S2_total_center_final_nM": float(final["S2_total_center_nM"]),
-        "I2_edge_final_nM": float(final["I2_edge_nM"]),
-        "S2_free_edge_final_nM": float(final["S2_free_edge_nM"]),
-        "S2_total_edge_final_nM": float(final["S2_total_edge_nM"]),
         "half_time_center_hr": half_time(df["time_hours"].values,
                                          df["I2_center_nM"].values),
-        "half_time_edge_hr": half_time(df["time_hours"].values,
-                                       df["I2_edge_nM"].values),
         "n_samples": len(df),
     }
 
@@ -787,7 +750,7 @@ def check_parameter_had_an_effect(raw):
     if raw["param_value"].nunique() < 2:
         return
 
-    key = "I2_avg_final_nM"
+    key = "I2_center_final_nM"
     if key not in raw.columns:
         return
 
@@ -803,8 +766,7 @@ def check_parameter_had_an_effect(raw):
               f"values but changed nothing, so it is almost certainly not")
         print("reaching the equations. Check that build_S2_equation() / "
               "reaction_pair_step() is passed")
-        print(f"params['{SWEEP_PARAMETER}'] and not a different key, and check")
-        print("LINKED_PARAMETERS if this parameter is tied to another.")
+        print(f"params['{SWEEP_PARAMETER}'] and not a different key.")
         print("!" * 78)
 
 
@@ -835,21 +797,18 @@ def plot(stats):
 
     ax = axes[0, 0]
     series(ax, "I2_center_final_nM", label="centre point (COMSOL-comparable)")
-    series(ax, "I2_edge_final_nM", label="node edge")
     ax.set_ylabel("Final [I2] at receiver (nM)")
     ax.set_title("Receiver switch")
     ax.legend(fontsize=9)
 
     ax = axes[0, 1]
     series(ax, "S2_total_center_final_nM", label="centre point")
-    series(ax, "S2_total_edge_final_nM", label="node edge")
     ax.set_ylabel("Final total [S2] at receiver (nM)")
     ax.set_title("Total RNA delivered")
     ax.legend(fontsize=9)
 
     ax = axes[1, 0]
     series(ax, "half_time_center_hr", label="centre point")
-    series(ax, "half_time_edge_hr", label="node edge")
     ax.set_ylabel("Half-time of I2 (hours)")
     ax.set_title("Turn-on time")
     ax.legend(fontsize=9)
@@ -875,7 +834,7 @@ def plot_timeseries():
     if not files:
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4.8))
+    fig, ax = plt.subplots(1, 1, figsize=(6.5, 4.8))
     colors = plt.cm.viridis(np.linspace(0, 0.9, len(SWEEP_VALUES)))
 
     for color, value in zip(colors, SWEEP_VALUES):
@@ -884,24 +843,20 @@ def plot_timeseries():
         for path in matches:
             df = pd.read_csv(path)
             label = f"{SWEEP_PARAMETER}={value:g}"
-            axes[0].plot(df["time_hours"], df["I2_center_nM"],
-                         color=color, lw=2, label=label)
-            axes[1].plot(df["time_hours"], df["I2_edge_nM"],
-                         color=color, lw=2, label=label)
+            ax.plot(df["time_hours"], df["I2_center_nM"],
+                    color=color, lw=2, label=label)
 
-    for ax, title in zip(axes, ["[I2] at centre point",
-                                "[I2] at node edge"]):
-        ax.set_xlabel("Time (hours)")
-        ax.set_ylabel("nM")
-        ax.set_title(title)
-        ax.grid(alpha=0.3)
+    ax.set_xlabel("Time (hours)")
+    ax.set_ylabel("nM")
+    ax.set_title("[I2] at centre point")
+    ax.grid(alpha=0.3)
 
-    handles, labels = axes[0].get_legend_handles_labels()
+    handles, labels = ax.get_legend_handles_labels()
     unique = dict(zip(labels, handles))
-    axes[0].legend(unique.values(), unique.keys(), fontsize=8)
+    ax.legend(unique.values(), unique.keys(), fontsize=8)
 
     fig.tight_layout()
-    out = OUTPUT_DIR / f"timeseries_{SWEEP_PARAMETER}.png"
+    out = OUTPUT_DIR / f"timeseries_{SWEEP_PARAMETER}_speedup.png"
     fig.savefig(out, dpi=200, bbox_inches="tight")
     print(f"Wrote {out}")
 
