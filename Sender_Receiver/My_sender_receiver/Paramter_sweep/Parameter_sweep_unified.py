@@ -115,14 +115,20 @@ warnings.filterwarnings("ignore")
 # Examples for other sweeps (uncomment one):
 #   SWEEP_PARAMETER = "Th2_init";  SWEEP_VALUES = [0.1, 0.2, 0.5, 1.0, 2.0, 5.0]
 #   SWEEP_PARAMETER = "k_p";       SWEEP_VALUES = [0.02, 0.2, 2.0]
-SWEEP_PARAMETER = "k_d_ds";    SWEEP_VALUES = np.linspace(0.1, 0.4, 10) * 3e-4
+SWEEP_PARAMETER = "k_d_ds";    SWEEP_VALUES = np.linspace(0, 0.1, 50) * 3e-4
 
 N_REPLICATES = 1
 
 # The model is deterministic, so replicates only make sense if you later add
 # noise. Leave at 1 unless you know you want more.
 
-N_PROCESSES = min(len(SWEEP_VALUES) * N_REPLICATES, max(1, cpu_count() - 1))
+# os.cpu_count() reports the physical node's full CPU count on Rockfish,
+# not what Slurm actually allocated to this job -- so it can't be trusted
+# to size the pool. SLURM_CPUS_PER_TASK (set by the --cpus-per-task sbatch
+# directive) is authoritative when present; cpu_count() is only a fallback
+# for runs outside Slurm (e.g. on a laptop).
+_allocated_cpus = int(os.environ.get("SLURM_CPUS_PER_TASK", cpu_count()))
+N_PROCESSES = min(len(SWEEP_VALUES) * N_REPLICATES, max(1, _allocated_cpus))
 
 
 # =============================================================================
@@ -171,7 +177,7 @@ MESH_AFFECTING = {
 }
 
 MESH_DIR = Path(__file__).resolve().parent / "meshes_conformal"
-OUTPUT_DIR = Path(__file__).resolve().parent / f"sweep_{SWEEP_PARAMETER}_ImprovedV4_5mmx5mm"
+OUTPUT_DIR = Path(__file__).resolve().parent / f"sweep_{SWEEP_PARAMETER}_zoomed_in_ImprovedV4_5mmx5mm"
 
 # Sweep control for the split-equation solver (see build_S2_equation() and
 # reaction_pair_step() below, and item 6 in the module docstring).

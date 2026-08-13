@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=k_d_ds_sweep
-#SBATCH --partition=shared               # shares a node instead of claiming a whole 48-core one
+#SBATCH --partition=parallel               # grabs individual nodes bc I'm greedy
 #SBATCH --account=rschulm3_startup
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=10               # 10 sweep values -> 1 core per sim, no batching needed
-#SBATCH --mem=40G                        # ~4G/core, generous for an 11k-cell mesh
-#SBATCH --time=00:30:00                  # ~7 min/sim x 1 batch + mesh build + overhead, with margin
+#SBATCH --cpus-per-task=30               # 10 sweep values + 1 spare core (Pool uses cpu_count()-1 workers)
+#SBATCH --mem=44G                        # ~4G/core, generous for an 11k-cell mesh
+#SBATCH --time=00:20:00                  # ~7 min/sim x 1 batch + mesh build + overhead, with margin
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 
