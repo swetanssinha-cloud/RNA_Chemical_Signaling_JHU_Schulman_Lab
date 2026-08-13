@@ -115,7 +115,7 @@ warnings.filterwarnings("ignore")
 # Examples for other sweeps (uncomment one):
 #   SWEEP_PARAMETER = "Th2_init";  SWEEP_VALUES = [0.1, 0.2, 0.5, 1.0, 2.0, 5.0]
 #   SWEEP_PARAMETER = "k_p";       SWEEP_VALUES = [0.02, 0.2, 2.0]
-SWEEP_PARAMETER = "k_d_ds";    SWEEP_VALUES = np.linspace(0, 0.1, 50) * 3e-4
+SWEEP_PARAMETER = "k_d_ss";    SWEEP_VALUES = np.linspace(0, 0.1, 50) * 3e-4
 
 N_REPLICATES = 1
 
