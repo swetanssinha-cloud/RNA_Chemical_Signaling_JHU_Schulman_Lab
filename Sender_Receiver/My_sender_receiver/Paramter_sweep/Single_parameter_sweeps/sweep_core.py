@@ -132,7 +132,7 @@ DEFAULT_PARAMS = {
 
     # geometry
     "node_diameter": 75.0,      # um
-    "distance_between": 300.0,  # um, centre-to-centre
+    "distance_between": 200.0,  # um, centre-to-centre
     "total_width": 5000,         # um (1 cm)
     "total_height": 5000,        # um (1 mm)
 

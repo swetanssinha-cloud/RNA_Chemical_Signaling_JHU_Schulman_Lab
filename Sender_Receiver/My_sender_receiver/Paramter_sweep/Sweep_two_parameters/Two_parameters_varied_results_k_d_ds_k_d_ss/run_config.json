@@ -1,0 +1,37 @@
+{
+  "parameter_one": "k_d_ds",
+  "values_one": [
+    1e-05,
+    5e-05
+  ],
+  "parameter_two": "k_d_ss",
+  "values_two": [
+    1e-05,
+    5e-05
+  ],
+  "n_replicates": 1,
+  "default_params": {
+    "D_solution": 150.0,
+    "D_gel": 60.0,
+    "k_p": 0.01,
+    "k_d_ds": 0.0003,
+    "k_d_ss": 0.0003,
+    "k_slow": 0.049999999999999996,
+    "k_fast": 1.0,
+    "I1O2_init": 0.1,
+    "I2_init": 0.1,
+    "Th2_init": 0.4,
+    "node_diameter": 75.0,
+    "distance_between": 300.0,
+    "total_width": 5000,
+    "total_height": 5000,
+    "fine_dx": 5.0,
+    "coarse_dx": 100.0,
+    "growth_rate": 1.5,
+    "cells_per_level": 3,
+    "dt": 60.0,
+    "total_time": 28800,
+    "save_interval_time": 60.0
+  },
+  "written": "2026-08-13 19:36:41"
+}

@@ -15,7 +15,7 @@ from sweep_core import SweepConfig, run
 
 cfg = SweepConfig(
     sweep_parameter="k_d_ss",
-    sweep_values=np.linspace(0, 0.1, 10) * 3e-4,
+    sweep_values=np.linspace(0, 0.1, 50) * 3e-4,
 )
 #change 10 to 50 
 if __name__ == "__main__":
