@@ -4,7 +4,7 @@
 #SBATCH --account=rschulm3_startup
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=5                 # 5 sweep values -> 5 workers
+#SBATCH --cpus-per-task=15                 # 5 sweep values -> 5 workers
 #SBATCH --mem=20G
 #SBATCH --time=00:30:00
 #SBATCH --output=%x_%j.out

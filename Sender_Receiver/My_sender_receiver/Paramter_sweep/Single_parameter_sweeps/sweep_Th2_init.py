@@ -11,10 +11,10 @@ from a live config -- double check these before running.
 """
 
 from sweep_core import SweepConfig, run
-
+import numpy as np
 cfg = SweepConfig(
     sweep_parameter="Th2_init",
-    sweep_values=[0.1, 0.2, 0.3, 0.4, 0.5],
+    sweep_values= np.linspace(0.1,1.0, 50) #[0.1, 0.2, 0.3, 0.4, 0.5,0.6,0.7,0.8,0.9,1.0,1.1,1.2,1.3,1.4,1.5],
 )
 
 if __name__ == "__main__":
