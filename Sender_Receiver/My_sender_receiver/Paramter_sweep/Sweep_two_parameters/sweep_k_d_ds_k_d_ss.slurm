@@ -4,7 +4,7 @@
 #SBATCH --account=rschulm3_startup
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4                 # 2 x 2 = 4 grid points -> 4 workers
+#SBATCH --cpus-per-task=45                 # 2 x 2 = 4 grid points -> 4 workers
 #SBATCH --mem=20G
 #SBATCH --time=00:30:00                   # neither parameter is geometric -> 1 shared mesh
 #SBATCH --output=%x_%j.out
