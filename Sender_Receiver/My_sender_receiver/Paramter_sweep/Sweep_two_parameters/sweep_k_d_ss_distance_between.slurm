@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=k_d_ds_distance_bewteen_sweep
+#SBATCH --job-name=k_d_ss_distance_between_sweep
 #SBATCH --partition=parallel
 #SBATCH --account=rschulm3_startup
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=45                 # 2 x 2 = 4 grid points -> 4 workers
-#SBATCH --mem=20G
+#SBATCH --cpus-per-task=40                 # 2 x 2 = 4 grid points -> 4 workers
+#SBATCH --mem=160G
 #SBATCH --time=01:00:00                   # neither parameter is geometric -> 1 shared mesh
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
