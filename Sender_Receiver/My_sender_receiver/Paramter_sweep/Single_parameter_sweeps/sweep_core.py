@@ -749,7 +749,13 @@ def summarise(cfg):
     print(f"Wrote {cfg.output_dir / 'summary_stats.csv'}")
     print(f"Wrote {cfg.output_dir / 'run_config.json'}")
 
-    missing = sorted(set(np.asarray(cfg.sweep_values).tolist()) - set(raw["param_value"]))
+    # Compare on the %g string, not the raw float: sweep_values may hold
+    # unrounded floating-point noise (e.g. 0.049999999999999996 from
+    # 1 * 5e4 * 1e-6), while raw["param_value"] is parsed back from a
+    # %g-formatted filename (0.05) -- the two never compare equal as floats
+    # even when the run is genuinely complete.
+    have = {f"{v:g}" for v in raw["param_value"]}
+    missing = [v for v in cfg.sweep_values if f"{v:g}" not in have]
     if missing:
         print(f"\nStill missing (re-run to fill these in): {missing}")
 
