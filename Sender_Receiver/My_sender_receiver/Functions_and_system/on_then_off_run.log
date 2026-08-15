@@ -1,0 +1,143 @@
+Info    : Meshing 1D...
+Info    : [  0%] Meshing curve 1 (Line)
+Info    : [ 20%] Meshing curve 2 (Line)
+Info    : [ 40%] Meshing curve 3 (Line)
+Info    : [ 60%] Meshing curve 4 (Line)
+Info    : [ 70%] Meshing curve 5 (Ellipse)
+Info    : [ 90%] Meshing curve 6 (Ellipse)
+Info    : Done meshing 1D (Wall 0.011495s, CPU 0.01008s)
+Info    : Meshing 2D...
+Info    : [  0%] Meshing surface 2 (Plane, Frontal-Delaunay)
+Info    : [ 40%] Meshing surface 3 (Plane, Frontal-Delaunay)
+Info    : [ 70%] Meshing surface 4 (Plane, Frontal-Delaunay)
+Info    : Done meshing 2D (Wall 0.593518s, CPU 0.520704s)
+Info    : 5482 nodes 11062 elements
+Info    : Optimizing mesh (Netgen)...
+Info    : Done optimizing mesh (Wall 6.17502e-06s, CPU 4e-06s)
+Info    : Writing 'radial_mesh_on_then_off.msh'...
+Info    : Done writing 'radial_mesh_on_then_off.msh'
+/Users/swetansinha/Projects/Johns_Hopkins_Coding/student_surrogate_package/Sender_Receiver/My_sender_receiver/Functions_and_system/On_then_off.py:456: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown
+  plt.show()
+Creating adaptive mesh...
+
+Stepped size field: 9 rings, growth_rate=1.5, 3 cells per ring
+  ring 0:    5.00 um  for distance [    0.0,    15.0) um
+  ring 1:    7.50 um  for distance [   15.0,    37.5) um
+  ring 2:   11.25 um  for distance [   37.5,    71.2) um
+  ring 3:   16.88 um  for distance [   71.2,   121.9) um
+  ring 4:   25.31 um  for distance [  121.9,   197.8) um
+  ring 5:   37.97 um  for distance [  197.8,   311.7) um
+  ring 6:   56.95 um  for distance [  311.7,   482.6) um
+  ring 7:   85.43 um  for distance [  482.6,   738.9) um
+  ring 8:  100.00 um  for distance [  738.9,     inf) um
+  conformality check: 10758 triangles, 1 connected component(s)  [OK]
+
+2D Simulation Setup TRIANGULAR MESH (on-then-off solver):
+  Mesh: 10758 cells (adaptive)
+  Domain: 5000 * 5000 μm²
+  Node diameter: 75 μm
+  Distance: 200 μm (center-to-center)
+  Sender at: (2400, 2500)
+  Receiver at: (2600, 2500)
+
+Starting 2D simulation with adaptive mesh (on-then-off solver)...
+t = 0.17 hr [ ON]: I2 = 99.34 nM, S2_total = 50.39 nM, sweeps = 5
+t = 0.33 hr [ ON]: I2 = 97.51 nM, S2_total = 159.95 nM, sweeps = 6
+t = 0.50 hr [ ON]: I2 = 93.35 nM, S2_total = 302.04 nM, sweeps = 6
+t = 0.67 hr [ ON]: I2 = 85.34 nM, S2_total = 396.25 nM, sweeps = 5
+t = 0.83 hr [ ON]: I2 = 74.73 nM, S2_total = 426.13 nM, sweeps = 4
+t = 1.00 hr [ ON]: I2 = 64.33 nM, S2_total = 438.80 nM, sweeps = 4
+t = 1.17 hr [ ON]: I2 = 55.12 nM, S2_total = 448.45 nM, sweeps = 4
+t = 1.33 hr [ ON]: I2 = 47.21 nM, S2_total = 456.59 nM, sweeps = 3
+t = 1.50 hr [ ON]: I2 = 40.52 nM, S2_total = 463.45 nM, sweeps = 3
+t = 1.67 hr [ ON]: I2 = 34.90 nM, S2_total = 469.19 nM, sweeps = 3
+t = 1.83 hr [ ON]: I2 = 30.21 nM, S2_total = 473.97 nM, sweeps = 3
+t = 2.00 hr [ ON]: I2 = 26.32 nM, S2_total = 477.93 nM, sweeps = 3
+t = 2.17 hr [ ON]: I2 = 23.11 nM, S2_total = 481.20 nM, sweeps = 3
+t = 2.33 hr [ ON]: I2 = 20.47 nM, S2_total = 483.90 nM, sweeps = 3
+t = 2.50 hr [ ON]: I2 = 18.29 nM, S2_total = 486.11 nM, sweeps = 3
+t = 2.67 hr [ ON]: I2 = 16.51 nM, S2_total = 487.93 nM, sweeps = 3
+t = 2.83 hr [ ON]: I2 = 15.04 nM, S2_total = 489.42 nM, sweeps = 3
+t = 3.00 hr [ ON]: I2 = 13.85 nM, S2_total = 490.63 nM, sweeps = 3
+t = 3.17 hr [ ON]: I2 = 12.87 nM, S2_total = 491.63 nM, sweeps = 3
+t = 3.33 hr [ ON]: I2 = 12.07 nM, S2_total = 492.44 nM, sweeps = 3
+t = 3.50 hr [ ON]: I2 = 11.42 nM, S2_total = 493.11 nM, sweeps = 3
+t = 3.67 hr [ ON]: I2 = 10.88 nM, S2_total = 493.65 nM, sweeps = 3
+t = 3.83 hr [ ON]: I2 = 10.45 nM, S2_total = 494.09 nM, sweeps = 3
+t = 4.00 hr [ ON]: I2 = 10.09 nM, S2_total = 494.45 nM, sweeps = 3
+t = 4.17 hr [ ON]: I2 = 9.81 nM, S2_total = 494.75 nM, sweeps = 3
+t = 4.33 hr [ ON]: I2 = 9.57 nM, S2_total = 494.99 nM, sweeps = 3
+t = 4.50 hr [ ON]: I2 = 9.38 nM, S2_total = 495.18 nM, sweeps = 3
+t = 4.67 hr [ ON]: I2 = 9.22 nM, S2_total = 495.34 nM, sweeps = 3
+t = 4.83 hr [ ON]: I2 = 9.09 nM, S2_total = 495.47 nM, sweeps = 3
+t = 5.00 hr [ ON]: I2 = 8.99 nM, S2_total = 495.58 nM, sweeps = 3
+t = 5.17 hr [ ON]: I2 = 8.91 nM, S2_total = 495.66 nM, sweeps = 3
+t = 5.33 hr [ ON]: I2 = 8.84 nM, S2_total = 495.73 nM, sweeps = 3
+t = 5.50 hr [ ON]: I2 = 8.78 nM, S2_total = 495.79 nM, sweeps = 2
+t = 5.67 hr [ ON]: I2 = 8.73 nM, S2_total = 495.84 nM, sweeps = 2
+t = 5.83 hr [ ON]: I2 = 8.70 nM, S2_total = 495.88 nM, sweeps = 2
+t = 6.00 hr [ ON]: I2 = 8.67 nM, S2_total = 495.91 nM, sweeps = 2
+t = 6.17 hr [ ON]: I2 = 8.64 nM, S2_total = 495.93 nM, sweeps = 2
+t = 6.33 hr [ ON]: I2 = 8.62 nM, S2_total = 495.95 nM, sweeps = 2
+t = 6.50 hr [ ON]: I2 = 8.60 nM, S2_total = 495.97 nM, sweeps = 2
+
+======================================================================
+PHASE TIMED OUT (forcing shutoff) at t = 6.667 h (max relative change = 2.79e-04)
+Setting I1O2 = 0 (production off).
+======================================================================
+
+t = 6.67 hr [OFF]: I2 = 8.59 nM, S2_total = 495.98 nM, sweeps = 2
+t = 6.83 hr [OFF]: I2 = 9.15 nM, S2_total = 490.45 nM, sweeps = 4
+t = 7.00 hr [OFF]: I2 = 10.18 nM, S2_total = 486.28 nM, sweeps = 4
+t = 7.17 hr [OFF]: I2 = 11.37 nM, S2_total = 482.22 nM, sweeps = 4
+t = 7.33 hr [OFF]: I2 = 12.66 nM, S2_total = 477.95 nM, sweeps = 3
+t = 7.50 hr [OFF]: I2 = 13.99 nM, S2_total = 473.37 nM, sweeps = 3
+t = 7.67 hr [OFF]: I2 = 15.35 nM, S2_total = 468.45 nM, sweeps = 3
+t = 7.83 hr [OFF]: I2 = 16.72 nM, S2_total = 463.19 nM, sweeps = 3
+t = 8.00 hr [OFF]: I2 = 18.11 nM, S2_total = 457.61 nM, sweeps = 3
+t = 8.17 hr [OFF]: I2 = 19.49 nM, S2_total = 451.74 nM, sweeps = 3
+t = 8.33 hr [OFF]: I2 = 20.86 nM, S2_total = 445.63 nM, sweeps = 3
+t = 8.50 hr [OFF]: I2 = 22.22 nM, S2_total = 439.32 nM, sweeps = 3
+t = 8.67 hr [OFF]: I2 = 23.57 nM, S2_total = 432.85 nM, sweeps = 3
+t = 8.83 hr [OFF]: I2 = 24.91 nM, S2_total = 426.27 nM, sweeps = 3
+t = 9.00 hr [OFF]: I2 = 26.22 nM, S2_total = 419.61 nM, sweeps = 3
+t = 9.17 hr [OFF]: I2 = 27.52 nM, S2_total = 412.91 nM, sweeps = 3
+t = 9.33 hr [OFF]: I2 = 28.80 nM, S2_total = 406.19 nM, sweeps = 2
+t = 9.50 hr [OFF]: I2 = 30.05 nM, S2_total = 399.48 nM, sweeps = 2
+t = 9.67 hr [OFF]: I2 = 31.29 nM, S2_total = 392.79 nM, sweeps = 2
+t = 9.83 hr [OFF]: I2 = 32.51 nM, S2_total = 386.15 nM, sweeps = 2
+t = 10.00 hr [OFF]: I2 = 33.71 nM, S2_total = 379.56 nM, sweeps = 2
+t = 10.17 hr [OFF]: I2 = 34.88 nM, S2_total = 373.04 nM, sweeps = 2
+t = 10.33 hr [OFF]: I2 = 36.04 nM, S2_total = 366.60 nM, sweeps = 2
+t = 10.50 hr [OFF]: I2 = 37.18 nM, S2_total = 360.23 nM, sweeps = 2
+t = 10.67 hr [OFF]: I2 = 38.29 nM, S2_total = 353.94 nM, sweeps = 2
+t = 10.83 hr [OFF]: I2 = 39.39 nM, S2_total = 347.75 nM, sweeps = 2
+t = 11.00 hr [OFF]: I2 = 40.47 nM, S2_total = 341.64 nM, sweeps = 2
+t = 11.17 hr [OFF]: I2 = 41.53 nM, S2_total = 335.63 nM, sweeps = 2
+t = 11.33 hr [OFF]: I2 = 42.57 nM, S2_total = 329.71 nM, sweeps = 2
+t = 11.50 hr [OFF]: I2 = 43.59 nM, S2_total = 323.89 nM, sweeps = 2
+t = 11.67 hr [OFF]: I2 = 44.60 nM, S2_total = 318.16 nM, sweeps = 2
+t = 11.83 hr [OFF]: I2 = 45.58 nM, S2_total = 312.52 nM, sweeps = 2
+t = 12.00 hr [OFF]: I2 = 46.55 nM, S2_total = 306.98 nM, sweeps = 2
+t = 12.17 hr [OFF]: I2 = 47.51 nM, S2_total = 301.54 nM, sweeps = 2
+t = 12.33 hr [OFF]: I2 = 48.44 nM, S2_total = 296.18 nM, sweeps = 2
+t = 12.50 hr [OFF]: I2 = 49.36 nM, S2_total = 290.92 nM, sweeps = 2
+t = 12.67 hr [OFF]: I2 = 50.26 nM, S2_total = 285.75 nM, sweeps = 2
+t = 12.83 hr [OFF]: I2 = 51.15 nM, S2_total = 280.67 nM, sweeps = 2
+t = 13.00 hr [OFF]: I2 = 52.02 nM, S2_total = 275.68 nM, sweeps = 2
+t = 13.17 hr [OFF]: I2 = 52.87 nM, S2_total = 270.77 nM, sweeps = 2
+
+======================================================================
+PHASE TIMED OUT (stopping) (post-shutoff) at t = 13.333 h (max relative change = 2.13e-02)
+======================================================================
+
+
+Simulation complete!
+total seconds of time for simulation: 262.243
+shutoff at t = 6.667 h (converged=False)
+post-shutoff steady state at t = 13.333 h (converged=False)
+Saving results to CSV files...
+I2 at shutoff:  8.59 nM
+I2 at recovery: 53.71 nM (I2_init = 100.00 nM)
+recovery half-time: 2.981 h after shutoff (absolute t = 9.648 h)
+EXIT_CODE=0

@@ -1,0 +1,42 @@
+[
+  {
+    "folder": "sweep_Th2_init_ImprovedV4_5mmx5mm",
+    "param_name": "Th2_init",
+    "metric": "half_time_center_hr",
+    "model": "linear",
+    "r2": 0.9983211809849764,
+    "equation": "y = 1.80315*Th2_init + 0.64443"
+  },
+  {
+    "folder": "sweep_distance_between_ImprovedV4_5mmx5mm",
+    "param_name": "distance_between",
+    "metric": "half_time_center_hr",
+    "model": "quadratic",
+    "r2": 0.9963538141474194,
+    "equation": "y = -3.06727e-06*distance_between^2 + 0.00492669*distance_between + 0.17978"
+  },
+  {
+    "folder": "sweep_k_d_ds_Improved50_values_5mmx5mm",
+    "param_name": "k_d_ds",
+    "metric": "half_time_center_hr",
+    "model": "sigmoid",
+    "r2": 0.9999995927128178,
+    "equation": "y = 2.25132 + (1.34606 - 2.25132) / (1 + exp(-(k_d_ds - -0.000129959)/0.000146967))"
+  },
+  {
+    "folder": "sweep_k_d_ss_ImprovedV4_5mmx5mm",
+    "param_name": "k_d_ss",
+    "metric": "half_time_center_hr",
+    "model": "sigmoid",
+    "r2": 0.999999133299731,
+    "equation": "y = 2.38192 + (1.05296 - 2.38192) / (1 + exp(-(k_d_ss - -0.000152474)/7.01581e-05))"
+  },
+  {
+    "folder": "sweep_k_slow_ImprovedV4_5mmx5mm",
+    "param_name": "k_slow",
+    "metric": "half_time_center_hr",
+    "model": "logarithmic",
+    "r2": 0.9999538090433475,
+    "equation": "y = -0.186441*ln(k_slow) + 0.495416"
+  }
+]
