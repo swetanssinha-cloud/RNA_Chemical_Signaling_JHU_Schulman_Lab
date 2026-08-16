@@ -95,10 +95,14 @@ import pandas as pd
 
 from fipy import CellVariable, DiffusionTerm, Gmsh2D, ImplicitSourceTerm, LinearLUSolver, TransientTerm
 
-# This file lives in .../Paramter_sweep/Single_parameter_sweeps/, so the
-# sweep outputs and mesh cache -- shared by every parameter -- live one
-# level up, in Paramter_sweep/ itself, alongside the older sweep folders.
+# This file lives in .../Paramter_sweep/Single_parameter_sweeps/. The mesh
+# cache is shared by every parameter and every k_p, so it lives one level up
+# in Paramter_sweep/ itself, alongside the older sweep folders. Sweep output
+# folders live right here, next to this file (see CORE_DIR below) -- one per
+# (sweep_parameter, k_p) combination, so switching k_p can never collide with
+# or overwrite another parameter set's results.
 SWEEP_ROOT = Path(__file__).resolve().parent.parent
+CORE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SWEEP_ROOT.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -119,16 +123,16 @@ DEFAULT_PARAMS = {
     "D_gel": 60.0,              # um^2/s
 
     # kinetics  (concentrations in uM, so bimolecular rates are 1/(uM s))
-    "k_p": 0.01,                 # 1/s      transcription
+    "k_p": 0.2, #keep as 0.01 in most cases                 # 1/s      transcription
     "k_d_ds": 3e-4,             # 1/s      double-stranded degradation
     "k_d_ss": 3e-4,             # 1/s      single-stranded degradation
-    "k_slow": 5e4 * 1e-6,       # 1/(uM s) S2 + I2  -> S2:I2
+    "k_slow": 1e6 * 1e-6,  #keep as 5e4 in most     # 1/(uM s) S2 + I2  -> S2:I2
     "k_fast": 1e6 * 1e-6,       # 1/(uM s) S2 + Th2 -> S2:Th2
 
     # initial conditions
     "I1O2_init": 0.1,           # uM, template in the sender node
     "I2_init": 0.1,             # uM, receiver switch
-    "Th2_init": 0.4,            # uM, threshold
+    "Th2_init": 5,     #keep a 0.4 in most cases       # uM, threshold
 
     # geometry
     "node_diameter": 75.0,      # um
@@ -171,9 +175,12 @@ class SweepConfig:
     What a single-parameter sweep script needs to specify. Everything else
     (the model, the solver, mesh handling, analysis, plotting) is shared.
 
-    output_dir defaults to Paramter_sweep/sweep_<parameter>_ImprovedV4_5mmx5mm,
-    matching the existing folders -- pass output_dir explicitly to override
-    (e.g. for a zoomed-in re-run that should not collide with the original).
+    output_dir defaults to
+    Single_parameter_sweeps/sweep_<parameter>_kp=<k_p>_ImprovedV4_5mmx5mm --
+    one folder per (sweep_parameter, k_p) combination, so re-running with a
+    different k_p (e.g. to cross-check against COMSOL) always starts a fresh
+    folder instead of overwriting the other parameter set's results. Pass
+    output_dir explicitly to override.
 
     n_processes defaults to (SLURM_CPUS_PER_TASK if set, else cpu_count()),
     capped at the number of tasks -- see the note on os.cpu_count() below.
@@ -188,7 +195,9 @@ class SweepConfig:
         self.sweep_values = list(self.sweep_values)
 
         if self.output_dir is None:
-            self.output_dir = SWEEP_ROOT / f"sweep_{self.sweep_parameter}_ImprovedV4_5mmx5mm"
+            self.output_dir = CORE_DIR / (
+                f"sweep_{self.sweep_parameter}_kp={DEFAULT_PARAMS['k_p']:g}"
+                f"_ImprovedV4_5mmx5mm")
         else:
             self.output_dir = Path(self.output_dir)
 
@@ -219,18 +228,19 @@ def timeseries_path_for(cfg, param_value, replicate_id, params):
     """
     The durable record of one completed run.
 
-    Encodes the actual k_d_ss and k_d_ds values used, not just the swept
-    parameter -- these two used to be forced equal (LINKED_PARAMETERS), so a
-    run from back then and a run now can share the same sweep_parameter value
-    while using different physics (e.g. k_d_ss=k_d_ds=6e-5 vs the current
-    k_d_ss=3e-4 default with k_d_ds=6e-5 swept). Without this, the old file
-    would be mistaken for a completed run of the new configuration and
-    silently skipped.
+    Encodes the actual k_p, k_d_ss and k_d_ds values used, not just the swept
+    parameter. k_p in particular switches between two whole validated
+    parameter sets (the old COMSOL-comparison values and the current ones);
+    k_d_ss/k_d_ds used to be forced equal (LINKED_PARAMETERS), so a run from
+    back then and a run now can share the same sweep_parameter value while
+    using different physics. Without this, an old file would be mistaken for
+    a completed run of the new configuration and silently skipped -- or,
+    worse, silently overwritten.
     """
     return cfg.output_dir / (
         f"timeseries_{cfg.sweep_parameter}={param_value:g}_rep={replicate_id}"
-        f"_kdss={params['k_d_ss']:g}_kdds={params['k_d_ds']:g}"
-        f"_5mmx5mm_speedup_newparameters.csv")
+        f"_kp={params['k_p']:g}_kdss={params['k_d_ss']:g}_kdds={params['k_d_ds']:g}"
+        f"_5mmx5mm_speedup.csv")
 
 
 def mesh_path_for(params):
@@ -714,6 +724,7 @@ def summarise(cfg):
     that actually differ (e.g. randomised initial conditions).
     """
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
+    kp_tag = f"{DEFAULT_PARAMS['k_p']:g}"
 
     raw = collect_results_from_disk(cfg)
     if raw.empty:
@@ -724,7 +735,8 @@ def summarise(cfg):
     # Embedding a Python list in a filename produces names containing spaces,
     # commas and brackets, which quote badly in the shell and broke an
     # earlier run.
-    (cfg.output_dir / "run_config.json").write_text(json.dumps({
+    run_config_file = cfg.output_dir / f"run_config_kp={kp_tag}.json"
+    run_config_file.write_text(json.dumps({
         "sweep_parameter": cfg.sweep_parameter,
         "sweep_values": cfg.sweep_values,
         "n_replicates": cfg.n_replicates,
@@ -733,7 +745,8 @@ def summarise(cfg):
     }, indent=2, default=str))
 
     raw = raw.sort_values(["param_value", "replicate_id"])
-    raw.to_csv(cfg.output_dir / "raw_results.csv", index=False)
+    raw_file = cfg.output_dir / f"raw_results_kp={kp_tag}.csv"
+    raw.to_csv(raw_file, index=False)
 
     # wall_time_s / n_cells only exist when the metadata sidecar was written.
     aggregated = METRICS + [c for c in ("wall_time_s", "n_cells")
@@ -742,12 +755,13 @@ def summarise(cfg):
     stats = raw.groupby("param_value").agg(agg)
     stats.columns = ["_".join(c) for c in stats.columns]
     stats = stats.reset_index()
-    stats.to_csv(cfg.output_dir / "summary_stats.csv", index=False)
+    stats_file = cfg.output_dir / f"summary_stats_kp={kp_tag}.csv"
+    stats.to_csv(stats_file, index=False)
 
     print(f"\nFound {len(raw)} completed run(s) on disk.")
-    print(f"Wrote {cfg.output_dir / 'raw_results.csv'}")
-    print(f"Wrote {cfg.output_dir / 'summary_stats.csv'}")
-    print(f"Wrote {cfg.output_dir / 'run_config.json'}")
+    print(f"Wrote {raw_file}")
+    print(f"Wrote {stats_file}")
+    print(f"Wrote {run_config_file}")
 
     # Compare on the %g string, not the raw float: sweep_values may hold
     # unrounded floating-point noise (e.g. 0.049999999999999996 from
@@ -850,7 +864,7 @@ def plot(cfg, stats):
         ax.grid(alpha=0.3)
 
     fig.tight_layout()
-    out = cfg.output_dir / f"sweep_{cfg.sweep_parameter}.png"
+    out = cfg.output_dir / f"sweep_{cfg.sweep_parameter}_kp={DEFAULT_PARAMS['k_p']:g}.png"
     fig.savefig(out, dpi=200, bbox_inches="tight")
     print(f"Wrote {out}")
 
@@ -883,7 +897,7 @@ def plot_timeseries(cfg):
     ax.legend(unique.values(), unique.keys(), fontsize=8)
 
     fig.tight_layout()
-    out = cfg.output_dir / f"timeseries_{cfg.sweep_parameter}_speedup.png"
+    out = cfg.output_dir / f"timeseries_{cfg.sweep_parameter}_speedup_kp={DEFAULT_PARAMS['k_p']:g}.png"
     fig.savefig(out, dpi=200, bbox_inches="tight")
     print(f"Wrote {out}")
 

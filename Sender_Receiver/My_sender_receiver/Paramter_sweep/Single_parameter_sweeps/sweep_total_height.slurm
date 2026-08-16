@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=distance_between_sweep
+#SBATCH --job-name=total_height_sweep
 #SBATCH --partition=parallel
 #SBATCH --account=rschulm3_startup
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=40                # 9 sweep values, mesh-affecting -> 9 workers
-#SBATCH --mem=60G
-#SBATCH --time=01:00:00
+#SBATCH --cpus-per-task=40                 # 5 sweep values -> 5 workers
+#SBATCH --mem=20G
+#SBATCH --time=00:30:00
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 
@@ -37,4 +37,4 @@ gmsh --version
 
 # --- run -----------------------------------------------------------------
 cd "$SLURM_SUBMIT_DIR"
-srun python sweep_distance_between.py
+srun python sweep_total_height.py

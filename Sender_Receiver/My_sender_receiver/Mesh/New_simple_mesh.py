@@ -490,7 +490,7 @@ def visualize_triangle_mesh(mesh_filename, sender_x, receiver_x, y_center, node_
     plt.show()
     
     return fig
-
+'''
 # =============================================================================
 # CONFORMAL MESH (use this one)
 # =============================================================================
@@ -513,7 +513,7 @@ def visualize_triangle_mesh(mesh_filename, sender_x, receiver_x, y_center, node_
 # node interiors as part of the domain, which is what we need since I1O2, I2
 # and Th2 all live inside the gel.
 # =============================================================================
-
+'''
 def check_mesh_is_conformal(mesh_filename, verbose=True):
     """
     Parse a Gmsh 2.2 file and count how many disconnected pieces it contains.
@@ -801,8 +801,8 @@ if __name__ == "__main__":
     
     # Create mesh with geometric growth (matching your requirements)
     mesh_filename, sender_x, receiver_x, y_ctr = create_conformal_radial_mesh(
-        bath_width=10000.0,           # 1 cm
-        bath_height=1000.0,           # 1 mm
+        bath_width=5000.0,           # 1 cm
+        bath_height=5000.0,           # 1 mm
         node_diameter=75.0,           # 75 μm diameter nodes
         distance_between_nodes=300.0, # 300 μm apart
         min_cell_size=0.75,          # 0.75 μm at node surface (for tanh)
@@ -838,6 +838,6 @@ if __name__ == "__main__":
     visualize_triangle_mesh(
     mesh_filename, sender_x, receiver_x, y_ctr, node_radius=37.5,
     zoom_sender=False,  # Set False to see receiver instead
-    zoom_size=250.0,   # Adjust to zoom in/out
-    save_filename='gmsh_triangle_mesh_sender.png'
+    zoom_size=2500,   # Adjust to zoom in/out
+    save_filename='gmsh_triangle_mesh_sender_bath.png'
 )
