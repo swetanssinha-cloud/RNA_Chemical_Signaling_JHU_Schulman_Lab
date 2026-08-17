@@ -11,7 +11,7 @@ from sweep_core import SweepConfig, run
 
 cfg = SweepConfig(
     sweep_parameter="distance_between",
-    sweep_values=np.np.arange(200, 1501, 100),
+    sweep_values=np.np.arange(80, 201, 10),
 )
 if __name__ == "__main__":
     run(cfg)
