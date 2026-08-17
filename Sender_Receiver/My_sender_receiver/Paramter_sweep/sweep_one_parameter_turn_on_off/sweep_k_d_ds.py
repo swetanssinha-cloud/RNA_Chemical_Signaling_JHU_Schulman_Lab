@@ -30,7 +30,7 @@ from sweep_core_on_off import SweepConfig, run
 
 cfg = SweepConfig(
     sweep_parameter="k_d_ds",
-    sweep_values=np.linspace(0, 0.1, 50) * 3e-4,
+    sweep_values=np.linspace(0, 1, 50) * 3e-4,
     output_dir=Path(__file__).resolve().parent / "sweep_k_d_ds_on_off_extended",
 )
 
