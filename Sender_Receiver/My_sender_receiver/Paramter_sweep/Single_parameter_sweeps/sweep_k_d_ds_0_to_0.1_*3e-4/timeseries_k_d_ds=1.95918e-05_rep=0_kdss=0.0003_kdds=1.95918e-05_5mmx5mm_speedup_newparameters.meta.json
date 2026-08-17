@@ -1,7 +1,0 @@
-{
-  "wall_time_s": 101.56394133530557,
-  "n_cells": 11012,
-  "n_cells_sender_node": 398,
-  "n_cells_receiver_node": 398,
-  "mesh_file": "conformal_ccd=300.0_nd=75.0_fine=5.00_coarse=100.0_gr=1.50_cpl=3_W=5000_H=5000.msh"
-}
