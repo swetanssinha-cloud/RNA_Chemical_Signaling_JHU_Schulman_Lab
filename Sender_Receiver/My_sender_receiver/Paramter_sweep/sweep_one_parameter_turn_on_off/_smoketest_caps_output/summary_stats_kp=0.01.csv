@@ -1,0 +1,2 @@
+param_value,I2_center_final_nM_mean,I2_center_final_nM_std,S2_free_center_final_nM_mean,S2_free_center_final_nM_std,S2_total_center_final_nM_mean,S2_total_center_final_nM_std,half_time_center_hr_mean,half_time_center_hr_std,wall_time_s_mean,wall_time_s_std,n_cells_mean,n_cells_std
+0.05,99.87229216608344,,0.0274972228260228,,10.22316282237063,,0.04666220858456052,,3.8962769200006733,,10758.0,

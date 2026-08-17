@@ -8,12 +8,23 @@ produces. This script makes two figures instead:
 
   1. The same I2-vs-time overlay, but colored by a colorbar instead of a
      50-entry legend.
-  2. Two derived timing metrics per run, plotted against the swept
-     parameter: the time for I2 to first drop to the midpoint between its
-     run-wide max and min, and the time for it to climb back through that
-     same midpoint during the recovery phase (NaN / no marker if it never
-     does -- see k_d_ds=0, where unbinding is off entirely so I2 can only
-     fall, never recover).
+  2. Three derived statistics per run, plotted against the swept parameter:
+       - t_down: time for I2 to first drop to the midpoint between its value
+         at t=0 and its value at the moment I1O2 was shut off (the ON
+         phase's own endpoints -- NOT the run-wide max/min, which can differ
+         when I2 keeps drifting down for a bit after shutoff before turning
+         around, which does happen in this data).
+       - t_up: time for I2 to climb back through that SAME midpoint,
+         searching from the shutoff time onward (NaN / gap if it never does
+         -- e.g. k_d_ds=0, where unbinding is off entirely so I2 can only
+         fall, never recover).
+       - I2_min: the true minimum I2 over the whole run (not just the ON
+         phase), since the minimum can land slightly into the OFF phase.
+
+Runs whose OFF phase hit off_phase_max_time as a timeout rather than
+reaching genuine convergence (off_converged=False in the .meta.json) are
+flagged in the printed output -- their t_up / I2_min reflect "state at the
+cap", not necessarily the true eventual recovery.
 
 Self-contained: reads run_config.json in this same folder to find out which
 parameter was swept, so it works unmodified if copied into any other
@@ -52,6 +63,11 @@ def load_run(param_name, value):
     return df, meta
 
 
+def nearest_index(time_hours, t_target):
+    """Row index whose time_hours is closest to t_target."""
+    return int((time_hours - t_target).abs().to_numpy().argmin())
+
+
 def crossing_time(t, y, target, from_idx=0, direction="down"):
     """
     First time (linearly interpolated between bracketing samples) that y
@@ -79,22 +95,35 @@ def crossing_time(t, y, target, from_idx=0, direction="down"):
     return float(t0 + (target - y0) * (t1 - t0) / (y1 - y0))
 
 
-def midpoint_timings(df):
+def off_on_timings(df, meta):
     """
-    time to first drop to the midpoint between this run's max and min I2,
-    and time to climb back through that same midpoint afterward (NaN if it
-    never does). Both are absolute times from t=0, not durations.
+    midpoint = halfway between I2 at t=0 and I2 at the moment I1O2 was shut
+    off (the ON phase's own start/end, i.e. base.half_time()'s definition
+    but scoped to the ON phase instead of the whole run).
+
+    t_down: time to first drop to that midpoint, searched from t=0.
+    t_up:   time to climb back through that SAME midpoint, searched from the
+            shutoff time onward -- not from the run-wide minimum, since I2
+            sometimes keeps drifting down a bit after shutoff before turning
+            around, which would make "search from the minimum" and "search
+            from shutoff" disagree.
+    I2_min: true minimum I2 over the WHOLE run (may land a bit into the OFF
+            phase, for the same reason).
     """
     t = df["time_hours"].to_numpy()
     y = df["I2_center_nM"].to_numpy()
 
-    y_max, y_min = y.max(), y.min()
-    midpoint = 0.5 * (y_max + y_min)
-    min_idx = int(np.argmin(y))
+    t_shutoff = meta.get("t_shutoff_hr")
+    shutoff_idx = nearest_index(df["time_hours"], t_shutoff) if t_shutoff is not None else 0
+
+    y0 = y[0]
+    y_shutoff = y[shutoff_idx]
+    midpoint = 0.5 * (y0 + y_shutoff)
 
     t_down = crossing_time(t, y, midpoint, from_idx=0, direction="down")
-    t_up = crossing_time(t, y, midpoint, from_idx=min_idx, direction="up")
-    return t_down, t_up, midpoint, y_max, y_min
+    t_up = crossing_time(t, y, midpoint, from_idx=shutoff_idx, direction="up")
+    i2_min = float(y.min())
+    return t_down, t_up, midpoint, y0, y_shutoff, i2_min
 
 
 def plot_timeseries_colorbar(param_name, sweep_values):
@@ -139,20 +168,23 @@ def plot_timeseries_colorbar(param_name, sweep_values):
     print(f"Wrote {out}")
 
 
-def plot_midpoint_timings(param_name, sweep_values):
+def plot_off_on_stats(param_name, sweep_values):
     rows = []
     for value in sweep_values:
         df, meta = load_run(param_name, value)
         if df is None:
             continue
-        t_down, t_up, midpoint, y_max, y_min = midpoint_timings(df)
+        t_down, t_up, midpoint, y0, y_shutoff, i2_min = off_on_timings(df, meta)
         rows.append({
             "param_value": value,
             "t_down_hr": t_down,
             "t_up_hr": t_up,
             "midpoint_nM": midpoint,
-            "I2_max_nM": y_max,
-            "I2_min_nM": y_min,
+            "I2_at_t0_nM": y0,
+            "I2_at_shutoff_nM": y_shutoff,
+            "I2_min_nM": i2_min,
+            "on_converged": meta.get("on_converged"),
+            "off_converged": meta.get("off_converged"),
         })
 
     if not rows:
@@ -160,8 +192,8 @@ def plot_midpoint_timings(param_name, sweep_values):
         return None
 
     stats = pd.DataFrame(rows).sort_values("param_value")
-    stats.to_csv(HERE / f"midpoint_timings_{param_name}.csv", index=False)
-    print(f"Wrote {HERE / f'midpoint_timings_{param_name}.csv'}")
+    stats.to_csv(HERE / f"off_on_stats_{param_name}.csv", index=False)
+    print(f"Wrote {HERE / f'off_on_stats_{param_name}.csv'}")
 
     n_missing = stats["t_up_hr"].isna().sum()
     if n_missing:
@@ -169,26 +201,45 @@ def plot_midpoint_timings(param_name, sweep_values):
               f"midpoint (e.g. {param_name}=0, where unbinding is off) -- "
               f"plotted as a gap, not zero.")
 
-    # Two stacked panels, not one shared axis: the drop time and the
-    # recovery time differ by 30-50x in this data (drop is a near-constant
-    # ~1.2h, recovery spans ~27-68h), so a shared y-axis flattens the drop
-    # time into an invisible line at the bottom -- the same unreadability
-    # problem as the 50-entry legend, just from axis scale instead of clutter.
-    fig, (ax_down, ax_up) = plt.subplots(2, 1, figsize=(7.5, 7.5), sharex=True)
+    n_off_timeout = (stats["off_converged"] == False).sum()  # noqa: E712
+    if n_off_timeout:
+        print(f"{n_off_timeout} run(s) hit off_phase_max_time as a timeout "
+              f"rather than genuinely converging -- their t_up / I2_min "
+              f"reflect state at the cap, not necessarily the true eventual "
+              f"recovery. See the off_converged column in "
+              f"off_on_stats_{param_name}.csv.")
+
+    # Three stacked panels, not one shared axis: t_down, t_up and I2_min are
+    # on very different scales in this kind of data (e.g. for k_d_ds,
+    # t_down sits at a near-constant ~1.2h while t_up spans tens of hours) --
+    # a shared axis flattens the smaller series to an invisible line, the
+    # same unreadability problem as the 50-entry legend, just from axis
+    # scale instead of clutter.
+    fig, (ax_down, ax_up, ax_min) = plt.subplots(3, 1, figsize=(7.5, 10), sharex=True)
 
     ax_down.plot(stats["param_value"], stats["t_down_hr"], "o-", color="tab:red")
     ax_down.set_ylabel("Time to drop\nto midpoint (hr)")
     ax_down.grid(alpha=0.3)
 
     ax_up.plot(stats["param_value"], stats["t_up_hr"], "o-", color="tab:blue")
+    if n_off_timeout:
+        timed_out = stats[stats["off_converged"] == False]  # noqa: E712
+        ax_up.scatter(timed_out["param_value"], timed_out["t_up_hr"],
+                       marker="x", color="black", s=45, zorder=5,
+                       label="off_converged=False (hit timeout)")
+        ax_up.legend(fontsize=8)
     ax_up.set_ylabel("Time to recover\nto midpoint (hr)")
-    ax_up.set_xlabel(param_name)
     ax_up.grid(alpha=0.3)
 
-    fig.suptitle(f"Midpoint crossing times: {param_name}\n"
-                 f"(midpoint = halfway between each run's own max and min I2)")
+    ax_min.plot(stats["param_value"], stats["I2_min_nM"], "o-", color="tab:green")
+    ax_min.set_ylabel("Minimum I2\n(nM)")
+    ax_min.set_xlabel(param_name)
+    ax_min.grid(alpha=0.3)
+
+    fig.suptitle(f"Off/on statistics: {param_name}\n"
+                 f"(midpoint = halfway between I2 at t=0 and I2 at shutoff)")
     fig.tight_layout()
-    out = HERE / f"midpoint_timings_{param_name}.png"
+    out = HERE / f"off_on_stats_{param_name}.png"
     fig.savefig(out, dpi=200, bbox_inches="tight")
     print(f"Wrote {out}")
     return stats
@@ -199,4 +250,4 @@ if __name__ == "__main__":
     print(f"parameter: {param_name}  ({len(sweep_values)} values)")
 
     plot_timeseries_colorbar(param_name, sweep_values)
-    plot_midpoint_timings(param_name, sweep_values)
+    plot_off_on_stats(param_name, sweep_values)

@@ -1,0 +1,62 @@
+Parameters (identical for both runs, from sweep_core.DEFAULT_PARAMS):
+  D_solution = 150.0
+  D_gel = 60.0
+  k_p = 0.01
+  k_d_ds = 0.0003
+  k_d_ss = 0.0003
+  k_slow = 0.049999999999999996
+  k_fast = 1.0
+  I1O2_init = 0.1
+  I2_init = 0.1
+  Th2_init = 0.4
+  node_diameter = 75.0
+  distance_between = 200.0
+  total_width = 5000
+  total_height = 5000
+  fine_dx = 5.0
+  coarse_dx = 100.0
+  growth_rate = 1.5
+  cells_per_level = 3
+  dt = 60.0
+  total_time = 57600
+  save_interval_time = 60.0
+
+  [baseline] generating mesh (min_cell_size=5.0 um)...
+  [refined] generating mesh (min_cell_size=2.5 um)...
+
+Running baseline simulation...
+  [baseline] done: 10758 cells, 961 samples, 4.4 min wall time
+
+Running refined simulation...
+  [refined] done: 15064 cells, 961 samples, 6.0 min wall time
+
+======================================================================
+MESH REFINEMENT SENSITIVITY CHECK
+======================================================================
+Baseline mesh (nominal min_cell_size=5.0 um): 10758 cells
+Refined  mesh (nominal min_cell_size=2.50 um): 15064 cells
+Compared over 961 common time points (0 to 16.00 h)
+
+I2_center_nM:
+  max |diff|      = 0.4502 nM
+  RMSE            = 0.3162 nM
+  max relative diff (excl. near-zero ramp) = 0.60%
+  final values    = 58.709 nM (baseline) vs 59.013 nM (refined)  -> 0.52% different
+
+S2_free_center_nM:
+  max |diff|      = 0.0688 nM
+  RMSE            = 0.0528 nM
+  max relative diff (excl. near-zero ramp) = 7.61%
+  final values    = 4.220 nM (baseline) vs 4.167 nM (refined)  -> 1.27% different
+
+S2_total_center_nM:
+  max |diff|      = 8.0825 nM
+  RMSE            = 1.4261 nM
+  max relative diff (excl. near-zero ramp) = 7.68%
+  final values    = 418.963 nM (baseline) vs 418.291 nM (refined)  -> 0.16% different
+
+I2_center_nM (primary readout) final-value difference: 0.52%
+Verdict: SMALL (<5% final-value difference) -- likely within normal run-to-run/solver noise, but worth a second look.
+======================================================================
+
+Plot saved: /Users/swetansinha/Projects/Johns_Hopkins_Coding/student_surrogate_package/Sender_Receiver/My_sender_receiver/Convergence_Studies/mesh_floor_check/sensitivity_comparison.png

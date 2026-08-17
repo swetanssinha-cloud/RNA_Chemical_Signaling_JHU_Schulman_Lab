@@ -476,7 +476,7 @@ def visualize_triangle_mesh(mesh_filename, sender_x, receiver_x, y_center, node_
     
     ax.set_xlabel('X Position (μm)', fontsize=13, fontweight='bold')
     ax.set_ylabel('Y Position (μm)', fontsize=13, fontweight='bold')
-    ax.set_title(f'Triangular Mesh Structure: {node_name} Node (zoom {zoom_size:.0f} μm)', 
+    ax.set_title(f'Triangular Mesh Structure: {node_name}', 
                 fontsize=15, fontweight='bold', pad=10)
     ax.legend(fontsize=12, loc='upper right')
     ax.set_aspect('equal')
@@ -805,7 +805,7 @@ if __name__ == "__main__":
         bath_height=5000.0,           # 1 mm
         node_diameter=75.0,           # 75 μm diameter nodes
         distance_between_nodes=300.0, # 300 μm apart
-        min_cell_size=0.75,          # 0.75 μm at node surface (for tanh)
+        min_cell_size=5,          # 0.75 μm at node surface (for tanh)
         max_cell_size=50.0,          # 50 μm far away
         growth_rate=1.5,             #Growth Factor       
         verbose=True
@@ -838,6 +838,6 @@ if __name__ == "__main__":
     visualize_triangle_mesh(
     mesh_filename, sender_x, receiver_x, y_ctr, node_radius=37.5,
     zoom_sender=False,  # Set False to see receiver instead
-    zoom_size=2500,   # Adjust to zoom in/out
-    save_filename='gmsh_triangle_mesh_sender_bath.png'
+    zoom_size=1000,   # Adjust to zoom in/out
+    save_filename='gmsh_triangle_mesh_sender_bath_slides.png'
 )

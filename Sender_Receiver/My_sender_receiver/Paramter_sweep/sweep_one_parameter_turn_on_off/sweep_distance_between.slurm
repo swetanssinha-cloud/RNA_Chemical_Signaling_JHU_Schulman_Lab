@@ -6,9 +6,10 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=9                  # 9 sweep values, mesh-affecting -> 9 workers
 #SBATCH --mem=60G
-#SBATCH --time=02:00:00                    # each run can run up to 2*48h simulated
-                                            # (adaptive on/off, see sweep_core_on_off.py)
-                                            # vs. the no-shutoff sweep's fixed 8h
+#SBATCH --time=03:00:00                    # each run can run up to 48h(ON)+150h(OFF)
+                                            # simulated (adaptive on/off, see
+                                            # sweep_core_on_off.py) vs. the no-shutoff
+                                            # sweep's fixed 8h
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 

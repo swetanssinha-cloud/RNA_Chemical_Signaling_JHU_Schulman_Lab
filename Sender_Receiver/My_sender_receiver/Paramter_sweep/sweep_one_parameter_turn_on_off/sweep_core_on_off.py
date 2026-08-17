@@ -32,7 +32,8 @@ here reuses On_then_off.py's own logic instead: turn I1O2 off when the
 receiver reaches steady state (checked only on cells inside the receiver
 node -- the whole-mesh version of this check is what stalled the original
 On_then_off.py attempts, see that file's docstring), with a generous
-per-phase timeout (phase_max_time, default 48h) as a backstop for parameter
+per-phase timeout (on_phase_max_time / off_phase_max_time, default 48h / 150h
+-- see SweepConfig for why they differ) as a backstop for parameter
 values that never numerically settle. Because it's the same criterion at
 every sweep point, "when did it turn off" becomes part of the answer instead
 of an assumption baked into the experiment design.
@@ -105,14 +106,24 @@ class SweepConfig:
 
     # Adaptive phase control -- same criterion tuned in On_then_off.py
     # (receiver-local relative-change check), reused unchanged at every
-    # sweep point. phase_max_time is generous (48h, vs. the 6h that worked
-    # for the single default-parameter run) because k_d_ds/k_d_ss are
-    # themselves swept toward 0 in two of these five sweeps -- see module
-    # docstring.
+    # sweep point. ON and OFF have separate caps because they are not
+    # symmetric in practice: across the first k_d_ds sweep, on_converged was
+    # True for all 50 runs (observed range 20-39h, comfortably under 48h),
+    # but off_converged was True for only 1 of 50 -- the other 49 all
+    # stopped at exactly t_shutoff + 48h, i.e. the timeout was firing, not
+    # genuine convergence. Recovery is just slower than the ON-phase decline
+    # (see On_then_off.py's docstring on why), so it gets a much bigger
+    # budget.
     check_interval: int = 50          # steps between steady-state checks (50 min)
     ss_window: int = 10               # consecutive passing checks required
     ss_tolerance: float = 1e-6
-    phase_max_time: float = 48 * 3600.0
+    on_phase_max_time: float = 48 * 3600.0     # generous vs. the observed 20-39h
+    off_phase_max_time: float = 150 * 3600.0   # 48h was NOT enough -- 49/50 runs in
+                                                # the first k_d_ds sweep hit it as a
+                                                # timeout. Even 150h may not be enough
+                                                # for every value in a slow-kinetics
+                                                # sweep; off_converged in each run's
+                                                # .meta.json says whether it actually did.
 
     def __post_init__(self):
         self.sweep_values = list(self.sweep_values)
@@ -283,9 +294,11 @@ def run_single_simulation(cfg, param_value, replicate_id):
                     recent_changes.pop(0)
 
                 phase_elapsed = current_time - phase_start_time
+                phase_cap = (cfg.on_phase_max_time if phase == "on"
+                             else cfg.off_phase_max_time)
                 converged = (len(recent_changes) >= cfg.ss_window
                              and all(c < cfg.ss_tolerance for c in recent_changes))
-                timed_out = phase_elapsed >= cfg.phase_max_time
+                timed_out = phase_elapsed >= phase_cap
 
                 if converged or timed_out:
                     if phase == "on":
@@ -379,9 +392,9 @@ def run_sweep(cfg):
 
     print(f"\nRunning {len(tasks)} simulation(s) on {cfg.n_processes} process(es).")
     print(f"Each run turns I1O2 off adaptively (receiver steady state, "
-          f"tolerance={cfg.ss_tolerance:g}, or a {cfg.phase_max_time/3600:.0f}h "
-          f"cap), then continues until the receiver re-converges or hits the "
-          f"same cap again.\n")
+          f"tolerance={cfg.ss_tolerance:g}, or a {cfg.on_phase_max_time/3600:.0f}h "
+          f"cap), then continues until the receiver re-converges or hits a "
+          f"{cfg.off_phase_max_time/3600:.0f}h cap.\n")
 
     t0 = time.time()
     if cfg.n_processes == 1:
@@ -456,7 +469,8 @@ def run(cfg):
     print(f"output    : {cfg.output_dir}")
     print(f"phase ctrl: check_interval={cfg.check_interval} steps, "
           f"ss_window={cfg.ss_window}, ss_tolerance={cfg.ss_tolerance:g}, "
-          f"phase_max_time={cfg.phase_max_time/3600:.0f}h")
+          f"on_phase_max_time={cfg.on_phase_max_time/3600:.0f}h, "
+          f"off_phase_max_time={cfg.off_phase_max_time/3600:.0f}h")
     print("=" * 78)
 
     if cfg.sweep_parameter not in base.DEFAULT_PARAMS:

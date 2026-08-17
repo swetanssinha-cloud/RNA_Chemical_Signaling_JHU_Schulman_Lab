@@ -6,12 +6,13 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=30                # 50 sweep values / 30 workers = 2 batches
 #SBATCH --mem=120G
-#SBATCH --time=04:00:00                    # each run can run up to 2*48h simulated
-                                            # (adaptive on/off, see sweep_core_on_off.py)
-                                            # -- the low end of this range is >=10x
-                                            # slower than what the phase logic's
-                                            # defaults were tuned against, so expect
-                                            # some runs to hit the 48h/phase cap
+#SBATCH --time=06:00:00                    # each run can run up to 48h(ON)+150h(OFF)
+                                            # simulated (adaptive on/off, see
+                                            # sweep_core_on_off.py) -- the low end of
+                                            # this range is >=10x slower than what the
+                                            # phase logic's defaults were tuned
+                                            # against, so expect some runs to hit the
+                                            # off_phase_max_time cap
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 

@@ -89,6 +89,8 @@ from typing import Optional, Sequence
 
 import matplotlib
 matplotlib.use("Agg")          # workers must not try to open windows
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -123,16 +125,16 @@ DEFAULT_PARAMS = {
     "D_gel": 60.0,              # um^2/s
 
     # kinetics  (concentrations in uM, so bimolecular rates are 1/(uM s))
-    "k_p": 0.2, #keep as 0.01 in most cases                 # 1/s      transcription
+    "k_p": 0.01, #keep as 0.01 in most cases                 # 1/s      transcription
     "k_d_ds": 3e-4,             # 1/s      double-stranded degradation
     "k_d_ss": 3e-4,             # 1/s      single-stranded degradation
-    "k_slow": 1e6 * 1e-6,  #keep as 5e4 in most     # 1/(uM s) S2 + I2  -> S2:I2
+    "k_slow": 5e4 * 1e-6,  #keep as 5e4 in most     # 1/(uM s) S2 + I2  -> S2:I2
     "k_fast": 1e6 * 1e-6,       # 1/(uM s) S2 + Th2 -> S2:Th2
 
     # initial conditions
     "I1O2_init": 0.1,           # uM, template in the sender node
     "I2_init": 0.1,             # uM, receiver switch
-    "Th2_init": 5,     #keep a 0.4 in most cases       # uM, threshold
+    "Th2_init": 0.4,     #keep a 0.4 in most cases       # uM, threshold
 
     # geometry
     "node_diameter": 75.0,      # um
@@ -148,7 +150,11 @@ DEFAULT_PARAMS = {
 
     # time stepping
     "dt": 60.0,                 # s
-    "total_time": 8 * 3600,     # s -- 8 h, matching the validated single run
+    "total_time": 16 * 3600,    # s -- 16 h hard stop. Steady-state detection
+                                 # (see STEADY_STATE_* below) usually exits
+                                 # earlier once I2_center_nM has flattened;
+                                 # this is only the ceiling for runs that
+                                 # never flatten.
     "save_interval_time": 60.0, # s
 }
 
@@ -163,6 +169,16 @@ MESH_AFFECTING = {
 MAX_SWEEPS = 15
 SWEEP_RESIDUAL_TARGET = 1e-8
 SWEEP_PLATEAU_TOL = 1e-9
+
+# Early-exit steady-state detection, checked against the centre-probe I2
+# series (I2_center_nM) that is already sampled every save_every steps -- see
+# run_single_simulation() below. CHECK_INTERVAL is counted in saved samples,
+# not raw steps: with save_interval_time == dt (the current DEFAULT_PARAMS)
+# that means every step, but it stays correct if save_interval_time is ever
+# changed to save less often than every step.
+STEADY_STATE_WINDOW = 60        # trailing saved samples used for mean/std
+STEADY_STATE_THRESHOLD = 1e-10  # std/mean of the trailing window
+CHECK_INTERVAL = 1              # check every CHECK_INTERVAL saved samples
 
 
 # =============================================================================
@@ -420,6 +436,10 @@ def run_single_simulation(cfg, param_value, replicate_id):
 
         sample(0)   # t = 0
 
+        recent_I2_values = []
+        steady_state_reached = False
+        steady_state_time_hr = None
+
         # ------------------------------------------------------- time stepping
         for step in range(1, n_steps + 1):
             S2.updateOld()
@@ -457,6 +477,25 @@ def run_single_simulation(cfg, param_value, replicate_id):
 
             if step % save_every == 0:
                 sample(step)
+                recent_I2_values.append(rows[-1]["I2_center_nM"])
+
+                # Check for steady state every CHECK_INTERVAL saved samples
+                if (step % (save_every * CHECK_INTERVAL) == 0
+                        and len(recent_I2_values) > STEADY_STATE_WINDOW):
+                    recent_window = recent_I2_values[-STEADY_STATE_WINDOW:]
+                    mean_I2 = np.mean(recent_window)
+
+                    if mean_I2 > 0:
+                        relative_change = np.std(recent_window) / mean_I2
+
+                        if relative_change < STEADY_STATE_THRESHOLD:
+                            steady_state_reached = True
+                            steady_state_time_hr = step * dt / 3600.0
+                            print(f"  → Steady state reached at "
+                                  f"t={steady_state_time_hr:.2f} hr "
+                                  f"(rel. change={relative_change:.2e}) "
+                                  f"[{label}]", flush=True)
+                            break
 
             # --- validation gate 2: the sender must be producing S2
             if step == max(1, int(600 / dt)):        # after 10 simulated minutes
@@ -492,6 +531,8 @@ def run_single_simulation(cfg, param_value, replicate_id):
             "n_cells_sender_node": int(sender_mask.sum()),
             "n_cells_receiver_node": int(receiver_mask.sum()),
             "mesh_file": mesh_file.name,
+            "steady_state_reached": bool(steady_state_reached),
+            "steady_state_time_hr": steady_state_time_hr,
         }, indent=2))
 
         final = df.iloc[-1]
@@ -499,7 +540,9 @@ def run_single_simulation(cfg, param_value, replicate_id):
         print(f"  OK   {label:<38} "
               f"I2_center={final['I2_center_nM']:7.2f} nM  "
               f"S2tot_center={final['S2_total_center_nM']:8.2f} nM  "
-              f"[{wall/60:.1f} min]", flush=True)
+              f"[{wall/60:.1f} min]"
+              f"{'  (steady state)' if steady_state_reached else ''}",
+              flush=True)
 
         return {
             "param_value": param_value,
@@ -870,31 +913,46 @@ def plot(cfg, stats):
 
 
 def plot_timeseries(cfg):
-    """Overlay every run's time series so the transients can be compared."""
+    """
+    Overlay every run's time series so the transients can be compared, colored
+    by the swept parameter value via a colorbar rather than a per-value
+    legend -- with 10+ sweep values a legend entry per line is unreadable
+    (see replot_readable.py in sweep_one_parameter_turn_on_off/ for the
+    on/off-sweep version of this same fix).
+    """
     files = sorted(cfg.output_dir.glob("timeseries_*.csv"))
     if not files:
         return
 
-    fig, ax = plt.subplots(1, 1, figsize=(6.5, 4.8))
-    colors = plt.cm.viridis(np.linspace(0, 0.9, len(cfg.sweep_values)))
+    fig, ax = plt.subplots(1, 1, figsize=(7.5, 5.2))
 
-    for color, value in zip(colors, cfg.sweep_values):
+    values = np.asarray(cfg.sweep_values, dtype=float)
+    norm = mcolors.Normalize(vmin=values.min(), vmax=values.max())
+    cmap = cm.viridis
+
+    plotted_any = False
+    for value in cfg.sweep_values:
         matches = sorted(cfg.output_dir.glob(
             f"timeseries_{cfg.sweep_parameter}={value:g}_rep=*.csv"))
+        color = cmap(norm(value))
         for path in matches:
             df = pd.read_csv(path)
-            label = f"{cfg.sweep_parameter}={value:g}"
-            ax.plot(df["time_hours"], df["I2_center_nM"],
-                    color=color, lw=2, label=label)
+            ax.plot(df["time_hours"], df["I2_center_nM"], color=color, lw=1.3)
+            plotted_any = True
+
+    if not plotted_any:
+        plt.close(fig)
+        return
 
     ax.set_xlabel("Time (hours)")
     ax.set_ylabel("nM")
     ax.set_title("[I2] at centre point")
     ax.grid(alpha=0.3)
 
-    handles, labels = ax.get_legend_handles_labels()
-    unique = dict(zip(labels, handles))
-    ax.legend(unique.values(), unique.keys(), fontsize=8)
+    sm = cm.ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax)
+    cbar.set_label(cfg.sweep_parameter)
 
     fig.tight_layout()
     out = cfg.output_dir / f"timeseries_{cfg.sweep_parameter}_speedup_kp={DEFAULT_PARAMS['k_p']:g}.png"

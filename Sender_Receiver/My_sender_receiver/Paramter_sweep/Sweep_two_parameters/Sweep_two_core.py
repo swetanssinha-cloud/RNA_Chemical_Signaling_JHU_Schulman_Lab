@@ -75,10 +75,13 @@ sys.path.insert(0, str(SWEEP_ROOT / "Single_parameter_sweeps"))
 
 from Mesh.New_simple_mesh import create_conformal_radial_mesh
 from sweep_core import (
+    CHECK_INTERVAL,
     DEFAULT_PARAMS,
     MAX_SWEEPS,
     MESH_AFFECTING,
     MESH_DIR,
+    STEADY_STATE_THRESHOLD,
+    STEADY_STATE_WINDOW,
     SWEEP_PLATEAU_TOL,
     SWEEP_RESIDUAL_TARGET,
     build_S2_equation,
@@ -276,6 +279,10 @@ def run_single_simulation(cfg, value_one, value_two, replicate_id):
 
         sample(0)   # t = 0
 
+        recent_I2_values = []
+        steady_state_reached = False
+        steady_state_time_hr = None
+
         # ------------------------------------------------------- time stepping
         for step in range(1, n_steps + 1):
             S2.updateOld()
@@ -313,6 +320,28 @@ def run_single_simulation(cfg, value_one, value_two, replicate_id):
 
             if step % save_every == 0:
                 sample(step)
+                recent_I2_values.append(rows[-1]["I2_center_nM"])
+
+                # Check for steady state every CHECK_INTERVAL saved samples.
+                # Only the centre probe (I2_center_nM) drives this -- the
+                # edge probe is still recorded in the timeseries whenever the
+                # loop stops, just not part of the exit condition.
+                if (step % (save_every * CHECK_INTERVAL) == 0
+                        and len(recent_I2_values) > STEADY_STATE_WINDOW):
+                    recent_window = recent_I2_values[-STEADY_STATE_WINDOW:]
+                    mean_I2 = np.mean(recent_window)
+
+                    if mean_I2 > 0:
+                        relative_change = np.std(recent_window) / mean_I2
+
+                        if relative_change < STEADY_STATE_THRESHOLD:
+                            steady_state_reached = True
+                            steady_state_time_hr = step * dt / 3600.0
+                            print(f"  → Steady state reached at "
+                                  f"t={steady_state_time_hr:.2f} hr "
+                                  f"(rel. change={relative_change:.2e}) "
+                                  f"[{label}]", flush=True)
+                            break
 
             # --- validation gate 2: the sender must be producing S2
             if step == max(1, int(600 / dt)):        # after 10 simulated minutes
@@ -355,13 +384,17 @@ def run_single_simulation(cfg, value_one, value_two, replicate_id):
             "n_cells_sender_node": int(sender_mask.sum()),
             "n_cells_receiver_node": int(receiver_mask.sum()),
             "mesh_file": mesh_file.name,
+            "steady_state_reached": bool(steady_state_reached),
+            "steady_state_time_hr": steady_state_time_hr,
         }, indent=2))
 
         final = df.iloc[-1]
         print(f"  OK   {label:<52} "
               f"I2_center={final['I2_center_nM']:7.2f} nM  "
               f"S2tot_center={final['S2_total_center_nM']:8.2f} nM  "
-              f"[{wall/60:.1f} min]", flush=True)
+              f"[{wall/60:.1f} min]"
+              f"{'  (steady state)' if steady_state_reached else ''}",
+              flush=True)
 
         return {"value_one": value_one, "value_two": value_two,
                 "replicate_id": replicate_id, "wall_time_s": wall,
@@ -544,7 +577,8 @@ def collect_results_from_disk(cfg):
             continue
 
         row = scalars_from_timeseries(df, value_one, value_two, replicate_id)
-        for key in ("wall_time_s", "n_cells"):
+        for key in ("wall_time_s", "n_cells",
+                    "steady_state_reached", "steady_state_time_hr"):
             if key in meta:
                 row[key] = meta[key]
         rows.append(row)
