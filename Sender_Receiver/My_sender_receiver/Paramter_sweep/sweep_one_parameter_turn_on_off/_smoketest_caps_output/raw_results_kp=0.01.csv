@@ -1,2 +1,0 @@
-param_value,replicate_id,I2_center_final_nM,S2_free_center_final_nM,S2_total_center_final_nM,half_time_center_hr,n_samples,wall_time_s,n_cells,n_cells_sender_node,n_cells_receiver_node,mesh_file,t_shutoff_hr,t_stop_hr,on_converged,off_converged
-0.05,0,99.87229216608344,0.0274972228260228,10.22316282237063,0.04666220858456052,9,3.8962769200006733,10758,398,398,conformal_ccd=200.0_nd=75.0_fine=5.00_coarse=100.0_gr=1.50_cpl=3_W=5000_H=5000.msh,0.03333333333333333,0.13333333333333333,False,False
