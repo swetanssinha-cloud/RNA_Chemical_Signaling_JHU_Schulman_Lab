@@ -16,6 +16,7 @@ S2_total_final = df["S2_total_final_mean"]
 half_mean_time = df["half_time_mean"]
 
 
+
 fig, axes = plt.subplots(4, 1, figsize=(12, 10))
 
 
