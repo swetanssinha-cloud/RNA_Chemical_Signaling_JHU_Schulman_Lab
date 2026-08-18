@@ -12,9 +12,9 @@ swapping wall-time for final free [S2] and using this panel layout:
     top row:    half-time to reach midpoint | final [I2] at receiver
     bottom row: final free [S2] at receiver | final total [S2] at receiver
 
-Hard-coded to the 3 folders that exist today (sweep_Th2_init_0_to_1_nM,
-sweep_k_d_ds, sweep_k_d_ss); add a new entry to FOLDERS if another
-"*_for_prez" folder shows up later.
+Hard-coded to the folders that exist today (sweep_Th2_init_0_to_1_nM,
+sweep_k_d_ds, sweep_k_d_ss, sweep_k_slow); add a new entry to FOLDERS if
+another "*_for_prez" folder shows up later.
 
 Run from inside this folder:
     python plot_summary_for_prez.py
@@ -35,6 +35,7 @@ FOLDERS = [
     "sweep_Th2_init_0_to_1_nM_for_prez",
     "sweep_k_d_ds_For_prez",
     "sweep_k_d_ss_for_prez",
+    "sweep_k_slow_for_prez",
 ]
 
 

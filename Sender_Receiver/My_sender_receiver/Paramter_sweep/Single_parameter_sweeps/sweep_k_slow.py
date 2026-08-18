@@ -14,7 +14,7 @@ from sweep_core import SweepConfig, run
 import numpy as np
 cfg = SweepConfig(
     sweep_parameter="k_slow",
-    sweep_values= np.array([1,2,3,4,5,6,7,8,9,10]) * 5e4 * 1e-6
+    sweep_values= np.array([0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1,2,3,4,5,6,7,8,9,10,12,14,16,18,20]) * 5e4 * 1e-6
 )
 
 if __name__ == "__main__":
