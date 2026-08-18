@@ -21,12 +21,12 @@ fine_dx = 5
 # NOTE: these must match the csv_filename lines at the bottom of
 # TG_Rmesh_tanh.py and TG_Rmesh_fast.py respectively -- update here if either
 # script's output naming changes.
-norm_file = f'timeseries_5mmx5mm_ccd={distance_between}_new_parameters.csv'
-fast_file = f'timeseries_5mmx5mm_ccd={distance_between}_Claudes_triangular_mesh_dx={fine_dx}_split_V1.csv'
+norm_file = f'SLOW_simulation_ccd={distance_between}.csv'
+fast_file = f'Fast_for_Comparision_ccd={distance_between}.csv'
 
-overlay_save_file_name = f'compare_fast_vs_norm_ccd={distance_between}um_dx={fine_dx}_overlay.png'
-difference_file_name = f'compare_fast_vs_norm_ccd={distance_between}um_dx={fine_dx}_differences.png'
-csv_file_name = f'compare_fast_vs_norm_ccd={distance_between}um_dx={fine_dx}_data.csv'
+overlay_save_file_name = f'compare_fast_vs_norm.png'
+difference_file_name = f'compare_fast_vs_norm.png'
+csv_file_name = f'compare_fast_vs_norm.csv'
 
 # The 2% ceiling from the conversation: anything above this and the split
 # solver's result should be treated as suspect, not just "a bit different".

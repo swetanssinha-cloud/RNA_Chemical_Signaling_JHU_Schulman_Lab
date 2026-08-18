@@ -76,9 +76,9 @@ k_d_ss = 3e-4
 k_slow = 5e4 * 1e-6
 k_fast = 1e6 * 1e-6
 
-I1O2_init = 0.025 #normally at 0.1
-I2_init = 0.025
-Th2_init = I2_init * 8 #8 is arihant's system
+I1O2_init = 0.1 #normally at 0.1
+I2_init = 0.1
+Th2_init = I2_init * 4 #8 is arihant's system
 
 node_diameter = 75
 node_radius = node_diameter / 2
@@ -321,7 +321,7 @@ df = pd.DataFrame({
     'S2_free (nM)': S2_free_concentration_nM,
     'S2_total (nM)': S2_total_concentration_nM})
 
-csv_filename = f'timeseries_for_Arihant.csv'#timeseries_ccd={distance_between:.0f}_Claudes_triangular_mesh_dx={fine_dx}_split_V1.csv
+csv_filename = f'Fast_for_Comparision_ccd={distance_between}.csv'#timeseries_ccd={distance_between:.0f}_Claudes_triangular_mesh_dx={fine_dx}_split_V1.csv
 df.to_csv(csv_filename, index=False)
 
 # =============================================================================

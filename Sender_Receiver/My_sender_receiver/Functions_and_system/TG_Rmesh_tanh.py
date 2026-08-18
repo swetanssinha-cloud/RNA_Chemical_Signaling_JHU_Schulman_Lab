@@ -248,7 +248,7 @@ df = pd.DataFrame({
     'S2_total (nM)': S2_total_concentration_nM})
 
 # Save to CSV
-csv_filename = f'timeseries_5mmx5mm_ccd={distance_between:.0f}_new_parameters.csv'
+csv_filename = f'SLOW_simulation_ccd={distance_between}.csv'
 df.to_csv(csv_filename, index=False)
 # print(f"Time series data saved to '{csv_filename}'")
 
@@ -290,3 +290,4 @@ plt.savefig(f'timeseries_5mmx5mm_ccd={distance_between:.0f}_new_parameters.png',
             dpi=300, bbox_inches='tight')
 plt.show()
 
+ 
