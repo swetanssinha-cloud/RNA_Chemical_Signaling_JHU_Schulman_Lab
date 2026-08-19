@@ -209,36 +209,49 @@ def plot_off_on_stats(param_name, sweep_values):
               f"recovery. See the off_converged column in "
               f"off_on_stats_{param_name}.csv.")
 
-    # Three stacked panels, not one shared axis: t_down, t_up and I2_min are
-    # on very different scales in this kind of data (e.g. for k_d_ds,
+    # Three side-by-side panels, not one shared axis: t_down, t_up and I2_min
+    # are on very different scales in this kind of data (e.g. for k_d_ds,
     # t_down sits at a near-constant ~1.2h while t_up spans tens of hours) --
     # a shared axis flattens the smaller series to an invisible line, the
     # same unreadability problem as the 50-entry legend, just from axis
     # scale instead of clutter.
-    fig, (ax_down, ax_up, ax_min) = plt.subplots(3, 1, figsize=(7.5, 10), sharex=True)
+    # Wide, short figsize (not matplotlib's default square-ish 6.4x4.8) and
+    # constrained_layout so each panel's own x-axis label and its "1e-5"
+    # tick offset text have room -- at the default size (and with a plain
+    # fig.tight_layout() call) they overlapped each other and the panels
+    # were too narrow to read on a slide. constrained_layout also accounts
+    # for the two-line suptitle automatically instead of needing a
+    # hand-tuned tight_layout(rect=...).
+    fig, (ax_down, ax_up, ax_min) = plt.subplots(
+        1, 3, figsize=(15, 5), sharex=True, constrained_layout=True)
 
-    ax_down.plot(stats["param_value"], stats["t_down_hr"], "o-", color="tab:red")
+    ax_down.plot(stats["param_value"], stats["t_down_hr"], "o-",
+                 color="tab:red", ms=5)
     ax_down.set_ylabel("Time to drop\nto midpoint (hr)")
     ax_down.grid(alpha=0.3)
 
-    ax_up.plot(stats["param_value"], stats["t_up_hr"], "o-", color="tab:blue")
+    ax_up.plot(stats["param_value"], stats["t_up_hr"], "o-",
+               color="tab:blue", ms=5)
     if n_off_timeout:
         timed_out = stats[stats["off_converged"] == False]  # noqa: E712
         ax_up.scatter(timed_out["param_value"], timed_out["t_up_hr"],
                        marker="x", color="black", s=45, zorder=5,
                        label="off_converged=False (hit timeout)")
-        ax_up.legend(fontsize=8)
+        ax_up.legend(fontsize=9, loc="lower left")
     ax_up.set_ylabel("Time to recover\nto midpoint (hr)")
     ax_up.grid(alpha=0.3)
 
-    ax_min.plot(stats["param_value"], stats["I2_min_nM"], "o-", color="tab:green")
+    ax_min.plot(stats["param_value"], stats["I2_min_nM"], "o-",
+                color="tab:green", ms=5)
     ax_min.set_ylabel("Minimum I2\n(nM)")
-    ax_min.set_xlabel(param_name)
     ax_min.grid(alpha=0.3)
 
+    for ax in (ax_down, ax_up, ax_min):    # sharex=True still needs each
+        ax.set_xlabel(param_name)          # panel's own label repeated
+
     fig.suptitle(f"Off/on statistics: {param_name}\n"
-                 f"(midpoint = halfway between I2 at t=0 and I2 at shutoff)")
-    fig.tight_layout()
+                 f"(midpoint = halfway between I2 at t=0 and I2 at shutoff)",
+                 fontsize=15)
     out = HERE / f"off_on_stats_{param_name}.png"
     fig.savefig(out, dpi=200, bbox_inches="tight")
     print(f"Wrote {out}")

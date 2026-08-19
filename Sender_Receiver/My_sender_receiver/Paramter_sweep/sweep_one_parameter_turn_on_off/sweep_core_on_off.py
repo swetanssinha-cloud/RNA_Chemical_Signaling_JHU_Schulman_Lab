@@ -70,6 +70,8 @@ from typing import Optional, Sequence
 
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -413,22 +415,31 @@ def plot_timeseries(cfg):
     each run's own shutoff point (reads t_shutoff_hr back from the .meta.json
     sidecar written by run_single_simulation). Deliberately just this one
     panel -- see module docstring on why no new metrics yet.
+
+    Colour reads off a colorbar rather than a per-value legend -- with the
+    10+ sweep values these scripts typically run, a legend entry per line is
+    unreadable (see replot_readable.py in sweep_k_d_ds_on_off_zoomed_in/,
+    which this was made to match).
     """
     files = sorted(cfg.output_dir.glob("timeseries_*.csv"))
     if not files:
         return
 
     fig, ax = plt.subplots(1, 1, figsize=(7.5, 5.2))
-    colors = plt.cm.viridis(np.linspace(0, 0.9, len(cfg.sweep_values)))
 
-    for color, value in zip(colors, cfg.sweep_values):
+    values = np.asarray(cfg.sweep_values, dtype=float)
+    norm = mcolors.Normalize(vmin=values.min(), vmax=values.max())
+    cmap = cm.viridis
+
+    plotted_any = False
+    for value in cfg.sweep_values:
         matches = sorted(cfg.output_dir.glob(
             f"timeseries_{cfg.sweep_parameter}={value:g}_rep=*.csv"))
+        color = cmap(norm(value))
         for path in matches:
             df = pd.read_csv(path)
-            label = f"{cfg.sweep_parameter}={value:g}"
-            ax.plot(df["time_hours"], df["I2_center_nM"],
-                    color=color, lw=1.6, label=label)
+            ax.plot(df["time_hours"], df["I2_center_nM"], color=color, lw=1.6)
+            plotted_any = True
 
             meta_path = path.with_suffix(".meta.json")
             if meta_path.exists():
@@ -440,18 +451,24 @@ def plot_timeseries(cfg):
                                color=color, marker="v", s=45, zorder=5,
                                edgecolor="black", linewidth=0.5)
 
+    if not plotted_any:
+        plt.close(fig)
+        return
+
     ax.set_xlabel("Time (hours)")
     ax.set_ylabel("[I2] at receiver (nM)")
     ax.set_title(f"On/off timeseries: {cfg.sweep_parameter}\n(▼ = I1O2 shutoff)")
     ax.grid(alpha=0.3)
 
-    handles, labels = ax.get_legend_handles_labels()
-    unique = dict(zip(labels, handles))
-    ax.legend(unique.values(), unique.keys(), fontsize=7, ncol=2)
+    sm = cm.ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax)
+    cbar.set_label(cfg.sweep_parameter)
 
     fig.tight_layout()
     out = cfg.output_dir / f"timeseries_on_off_{cfg.sweep_parameter}.png"
     fig.savefig(out, dpi=200, bbox_inches="tight")
+    plt.close(fig)
     print(f"Wrote {out}")
 
 

@@ -20,13 +20,24 @@ Usage
 -----
     python fit_sweep_equations.py
         Fit every subfolder of this script's directory that contains
-        timeseries_*.csv files.
+        timeseries_*.csv files, independently.
 
     python fit_sweep_equations.py sweep_k_d_ds_Improved50_values_5mmx5mm
         Fit only that one folder.
 
+    python fit_sweep_equations.py sweep_a sweep_b sweep_c
+        Merge all listed folders (e.g. adjacent sub-ranges of the same swept
+        parameter) into ONE dataset and fit that. If the same (value,
+        replicate) shows up in more than one folder -- e.g. an overlapping
+        boundary point -- only one copy is kept (see _select_run()). Results
+        are written to a new folder unless --out-dir is given.
+
     python fit_sweep_equations.py <dir> --metric I2_center_final_nM
         Fit the final-I2-vs-parameter relationship instead of half-time.
+
+    python fit_sweep_equations.py sweep_a sweep_b --timeseries
+        Also write a combined I2-vs-time overlay plot across every run in
+        the merged dataset.
 
 Run with the same conda env used for the sweeps themselves:
     PATH="$HOME/miniconda/envs/diffusion/bin:$PATH" \\
@@ -85,23 +96,59 @@ def half_time(time_hours, signal):
 
 # =============================================================================
 # CSV discovery -- same filename convention as sweep_core.collect_results_from_disk,
-# plus dedup for folders that hold leftover files from an older naming scheme
+# plus dedup for the same (value, replicate) appearing more than once, either
+# within one folder (leftover files from an older naming scheme) or across
+# folders (overlapping sub-ranges of the same sweep, e.g. distance_between
+# swept in 80-200, 200-1000, and 1000-1500 chunks that share their endpoints)
 # =============================================================================
 
-def discover_runs(results_dir):
+def _select_run(paths):
     """
-    Scan results_dir for timeseries_<param>=<value>_rep=<rep>*.csv files and
-    return (param_name, dataframe) with one row per (param_value, replicate).
+    Pick the most trustworthy file when the same (value, replicate) shows up
+    more than once. Preference order:
+      1. files that carry the explicit kdss=/kdds= physics tag (added to
+         disambiguate physics -- see timeseries_path_for() in sweep_core.py),
+      2. among those, the one whose time series actually ran longest
+         (closer to steady state -- sub-range sweep folders can differ in
+         total_time even when every rate constant matches),
+      3. most recently written, as a final tiebreak.
 
-    Some folders (e.g. sweep_k_slow_ImprovedV4_5mmx5mm) hold leftover files
-    from an older filename convention (no kdss=/kdds= physics tag) alongside
-    current ones for the same value/replicate. sweep_core's own
-    collect_results_from_disk() would silently average both together via
-    groupby -- here, when duplicates are found, the file with the explicit
-    kdss=/kdds= tag is kept (it is self-describing about which physics were
-    used) and the rest are reported as skipped instead.
+    sweep_core.collect_results_from_disk() would silently average all
+    duplicates together via groupby; that is wrong here since duplicates can
+    come from genuinely different physics (old vs new rate constants) or
+    different simulated durations, not just replicate noise.
     """
-    files = sorted(results_dir.glob("timeseries_*.csv"))
+    if len(paths) == 1:
+        return paths[0], []
+
+    tagged = [p for p in paths if "_kdss=" in p.name]
+    candidates = tagged or paths
+
+    def sort_key(p):
+        try:
+            t_max = pd.read_csv(p, usecols=["time_hours"])["time_hours"].max()
+        except Exception:
+            t_max = -1.0
+        return (t_max, p.stat().st_mtime)
+
+    chosen = max(candidates, key=sort_key)
+    skipped = [p.name for p in paths if p != chosen]
+    return chosen, skipped
+
+
+def discover_runs(results_dirs):
+    """
+    Scan one or more result folders for timeseries_<param>=<value>_rep=<rep>*.csv
+    files and return (param_name, dataframe) with one row per (param_value,
+    replicate), pooled across all the given folders.
+    """
+    if isinstance(results_dirs, (str, Path)):
+        results_dirs = [results_dirs]
+    results_dirs = [Path(d) for d in results_dirs]
+
+    files = []
+    for d in results_dirs:
+        files.extend(sorted(d.glob("timeseries_*.csv")))
     if not files:
         return None, pd.DataFrame()
 
@@ -114,8 +161,8 @@ def discover_runs(results_dir):
         this_param = m.group("param")
         param_name = param_name or this_param
         if this_param != param_name:
-            # A folder should only ever hold one swept parameter; ignore
-            # anything that doesn't match the first one we saw.
+            # Every folder being merged should share one swept parameter;
+            # ignore anything that doesn't match the first one we saw.
             continue
         value = float(m.group("value"))
         rep = int(m.group("rep"))
@@ -126,15 +173,11 @@ def discover_runs(results_dir):
 
     rows = []
     for (value, rep), paths in sorted(groups.items()):
-        if len(paths) > 1:
-            tagged = [p for p in paths if "_kdss=" in p.name]
-            chosen = max(tagged or paths, key=lambda p: p.stat().st_mtime)
-            skipped = [p.name for p in paths if p != chosen]
+        chosen, skipped = _select_run(paths)
+        if skipped:
             print(f"  note: {param_name}={value:g} rep={rep} has "
                   f"{len(paths)} matching files -> using {chosen.name}, "
                   f"skipping {skipped}")
-        else:
-            chosen = paths[0]
 
         try:
             df = pd.read_csv(chosen)
@@ -152,6 +195,7 @@ def discover_runs(results_dir):
             "I2_center_final_nM": float(i2[-1]),
             "half_time_center_hr": half_time(t, i2),
             "source_file": chosen.name,
+            "source_path": chosen,
         })
 
     return param_name, pd.DataFrame(rows)
@@ -307,29 +351,49 @@ def equation_string(fit, param_name):
 
 
 # =============================================================================
-# Per-folder pipeline
+# Pipeline -- runs on one folder, or a merged set of folders
 # =============================================================================
 
-def process_folder(results_dir, metric):
-    print(f"\n=== {results_dir.name} ===")
-    param_name, raw = discover_runs(results_dir)
+def run_dataset(dirs, metric, out_dir=None, make_timeseries_plot=False,
+                 timeseries_t_max_hours=None):
+    """
+    dirs: list of one or more result folders, pooled into a single dataset.
+    out_dir: where to write the fit report/plot. Defaults to dirs[0] when
+    there is only one input folder (matching the original single-folder
+    behaviour); when merging multiple folders, defaults to a new folder
+    named after the parameter and the merged value range.
+    """
+    label = " + ".join(d.name for d in dirs)
+    print(f"\n=== {label} ===")
+    param_name, raw = discover_runs(dirs)
     if raw.empty:
         print("  no timeseries CSVs found, skipping.")
         return None
 
-    raw = raw.dropna(subset=[metric])
-    if raw.empty:
+    if out_dir is None:
+        if len(dirs) == 1:
+            out_dir = dirs[0]
+        else:
+            lo, hi = raw["param_value"].min(), raw["param_value"].max()
+            out_dir = HERE / f"sweep_{param_name}_{lo:g}_to_{hi:g}_combined"
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    metric_raw = raw.dropna(subset=[metric])
+    if metric_raw.empty:
         print(f"  no finite '{metric}' values, skipping.")
         return None
 
-    agg = (raw.groupby("param_value", as_index=False)[metric]
-              .mean()
-              .sort_values("param_value"))
+    agg = (metric_raw.groupby("param_value", as_index=False)[metric]
+                     .mean()
+                     .sort_values("param_value"))
     x = agg["param_value"].to_numpy(dtype=float)
     y = agg[metric].to_numpy(dtype=float)
 
     print(f"  parameter: {param_name}   distinct values: {len(x)}   "
-          f"metric: {metric}   (from {len(raw)} run(s))")
+          f"metric: {metric}   (from {len(metric_raw)} run(s) across "
+          f"{len(dirs)} folder(s))")
+    print(f"  output   : {out_dir}")
 
     if len(x) < 4:
         print("  fewer than 4 distinct parameter values -- too few to fit "
@@ -359,11 +423,15 @@ def process_folder(results_dir, metric):
         print(f"    {r['model']:<17} R^2={r['r2']:.4f}  AICc={r['aicc']:8.2f}  "
               f"{equation_string(r, param_name)}")
 
-    save_report(results_dir, param_name, metric, x, y, results, best)
-    plot_fit(results_dir, param_name, metric, x, y, results, best)
+    save_report(out_dir, param_name, metric, x, y, results, best)
+    plot_fit(out_dir, param_name, metric, x, y, results, best)
 
-    return dict(folder=results_dir.name, param_name=param_name, metric=metric,
-                model=best["model"], r2=best["r2"],
+    if make_timeseries_plot:
+        plot_combined_timeseries(raw, out_dir, param_name,
+                                  t_max_hours=timeseries_t_max_hours)
+
+    return dict(folder=label, out_dir=str(out_dir), param_name=param_name,
+                metric=metric, model=best["model"], r2=best["r2"],
                 equation=equation_string(best, param_name))
 
 
@@ -436,6 +504,56 @@ def plot_fit(results_dir, param_name, metric, x, y, results, best):
     print(f"  wrote {out}")
 
 
+def plot_combined_timeseries(raw, out_dir, param_name, t_max_hours=None):
+    """
+    Overlay every run's I2-vs-time curve, like sweep_core.plot_timeseries(),
+    but built from the already-deduped `raw` table so a value that exists in
+    two merged folders (e.g. distance_between=200 in both an 80-200 and a
+    200-1000 sub-range) is drawn once, from the run _select_run() chose.
+
+    Merged folders can differ in how long they simulated (e.g. 8h vs 16h);
+    t_max_hours truncates every curve to the same window so runs that only
+    went to 8h don't stick out as short lines next to 16h ones.
+    """
+    rows = raw.sort_values("param_value")
+    values = rows["param_value"].to_numpy(dtype=float)
+    colors = plt.cm.viridis(np.linspace(0, 0.9, len(values)))
+
+    fig, ax = plt.subplots(figsize=(8, 5.5))
+    for color, (_, row) in zip(colors, rows.iterrows()):
+        df = pd.read_csv(row["source_path"])
+        if t_max_hours is not None:
+            df = df[df["time_hours"] <= t_max_hours]
+        ax.plot(df["time_hours"], df["I2_center_nM"], color=color, lw=1.5,
+                label=f"{param_name}={row['param_value']:g}")
+
+    ax.set_xlabel("Time (hours)")
+    ax.set_ylabel("[I2] at centre point (nM)")
+    title = f"[I2] vs time -- {param_name} = {values.min():g} to {values.max():g} ({len(values)} runs)"
+    if t_max_hours is not None:
+        title += f", truncated to {t_max_hours:g}h"
+    ax.set_title(title)
+    ax.grid(alpha=0.3)
+
+    # A per-line legend stops being readable past ~15 curves; fall back to a
+    # colorbar keyed to param_value, which scales to however many runs were
+    # merged in.
+    if len(values) <= 15:
+        ax.legend(fontsize=7, ncol=2)
+    else:
+        sm = plt.cm.ScalarMappable(
+            cmap="viridis", norm=plt.Normalize(values.min(), values.max()))
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=ax)
+        cbar.set_label(param_name)
+
+    fig.tight_layout()
+    out = out_dir / f"timeseries_{param_name}_combined.png"
+    fig.savefig(out, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  wrote {out}")
+
+
 # =============================================================================
 # Entry point
 # =============================================================================
@@ -443,29 +561,51 @@ def plot_fit(results_dir, param_name, metric, x, y, results, best):
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                       formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("results_dir", nargs="?", default=None,
-                         help="Folder with timeseries_<param>=<value>_rep=<rep>*.csv "
-                              "files. If omitted, every subfolder of this script's "
-                              "directory containing such files is processed.")
+    parser.add_argument("results_dirs", nargs="*", default=None,
+                         help="Folder(s) with timeseries_<param>=<value>_rep=<rep>*.csv "
+                              "files. Zero: fit every subfolder of this script's "
+                              "directory independently. One: fit just that folder. "
+                              "Two or more: merge them into one dataset and fit that.")
     parser.add_argument("--metric", choices=METRICS, default="half_time_center_hr",
                          help="Which summary metric to fit vs the swept parameter "
                               "(default: half_time_center_hr).")
+    parser.add_argument("--out-dir", default=None,
+                         help="Where to write the merged fit's report/plot. Only "
+                              "meaningful with 2+ input folders; defaults to a new "
+                              "'sweep_<param>_<min>_to_<max>_combined' folder.")
+    parser.add_argument("--timeseries", action="store_true",
+                         help="Also write a combined I2-vs-time overlay plot across "
+                              "every run in the dataset.")
+    parser.add_argument("--truncate-hours", type=float, default=None,
+                         help="Cut every curve in the --timeseries plot off at this "
+                              "many simulated hours. Useful when merged folders ran "
+                              "for different total_time (e.g. 8h vs 16h) and you want "
+                              "every line to stop at the same x position.")
     args = parser.parse_args()
 
-    if args.results_dir:
-        dirs = [Path(args.results_dir).resolve()]
-    else:
-        dirs = sorted(
-            d for d in HERE.iterdir()
-            if d.is_dir() and any(d.glob("timeseries_*.csv"))
-        )
-        if not dirs:
-            print(f"No subfolders of {HERE} contain timeseries_*.csv files.")
-            return
+    if args.results_dirs:
+        input_dirs = [Path(d).resolve() for d in args.results_dirs]
+        out_dir = Path(args.out_dir).resolve() if args.out_dir else None
+        summary = []
+        result = run_dataset(input_dirs, args.metric, out_dir=out_dir,
+                              make_timeseries_plot=args.timeseries,
+                              timeseries_t_max_hours=args.truncate_hours)
+        if result:
+            summary.append(result)
+        return
+
+    dirs = sorted(
+        d for d in HERE.iterdir()
+        if d.is_dir() and any(d.glob("timeseries_*.csv"))
+    )
+    if not dirs:
+        print(f"No subfolders of {HERE} contain timeseries_*.csv files.")
+        return
 
     summary = []
     for d in dirs:
-        result = process_folder(d, args.metric)
+        result = run_dataset([d], args.metric, make_timeseries_plot=args.timeseries,
+                              timeseries_t_max_hours=args.truncate_hours)
         if result:
             summary.append(result)
 
