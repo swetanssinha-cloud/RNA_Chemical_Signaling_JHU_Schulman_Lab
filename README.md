@@ -18,6 +18,8 @@ The folders include:
       This is the system that Chen 25' uses in his COMSOL expirements. However, this covers a more basic case where there are only two nodes communicating with each other. Please refer to the slideshow in order to understand chronologically what was made. Inside this folder are several other folders. Please ignore "failed_things" and only preced to "My_sender_receiver" (CHANGE NAME). The file "preset_parameters.py" has some parameters that certain systems use. 
    
       Inside of My_sender_receiver are six main folders
+
+
       a. COMSOL_results: These are files from COMSOL that were used to compare against python results. 
    
       b. Comparision: These are files and plots that compare COMSOL to python results. There are timeseries csvs, python data csvs, plots and scripts that are meant to compare COMSOL and python. "compareCOMSOL_and_python_One_simluation.py" is meant to compare the timeseries of COMSOL and python for one simulation of given parameters. The "COMSOL_vs_Python_parameter_sweep.py" is meant to compare the parameter sweep results for both COMSOL and python. The failed version folder is the previous parameter sweep study I was using which had some errors and was not as accurate as the final version.
