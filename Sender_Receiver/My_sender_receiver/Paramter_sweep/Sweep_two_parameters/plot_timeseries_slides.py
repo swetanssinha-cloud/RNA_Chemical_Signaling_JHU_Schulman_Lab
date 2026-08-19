@@ -16,8 +16,11 @@ Reads only the CSVs already on disk -- nothing is re-simulated. Writes
 slides_timeseries_{I2,S2_free,S2_total}.png into each folder, alongside the
 existing timeseries_*.png (which are left untouched).
 
-Hard-coded to the 3 folders that exist today; add a new entry to FOLDERS if
-another two-parameter "*_for_prez" folder shows up later.
+Hard-coded to the "*_for_prez" folders that exist today; add or remove
+entries in FOLDERS as folders are added or renamed (e.g.
+Two_parameters_varied_results_distance_between_k_d_ss_for_prez was renamed
+to ..._short and dropped from here, since it's no longer a "for_prez"
+folder).
 
 Run from inside Sweep_two_parameters/:
     python plot_timeseries_slides.py
@@ -40,7 +43,6 @@ HERE = Path(__file__).resolve().parent
 FOLDERS = [
     "Two_parameters_varied_results_k_slow_distance_between_for_prez",
     "Two_parameters_varied_results_k_d_ds_k_d_ss_for_prez",
-    "Two_parameters_varied_results_distance_between_k_d_ss_for_prez",
 ]
 
 SPECIES = [
@@ -131,6 +133,11 @@ def plot_folder(folder_name):
 
         for row in range(N_ROWS):                 # y label once per row
             axes[row, 0].set_ylabel(ylabel, fontsize=12)
+
+        # concentration can't go negative -- don't let autoscale suppress 0
+        # and exaggerate the spread; sharey=True propagates this to every
+        # panel in the figure.
+        axes[0, 0].set_ylim(bottom=0)
 
         for ax in panels[len(values_two):]:        # leftover slots, if any
             ax.axis("off")

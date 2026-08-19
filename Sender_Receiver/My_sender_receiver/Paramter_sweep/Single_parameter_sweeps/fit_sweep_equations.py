@@ -533,6 +533,8 @@ def plot_combined_timeseries(raw, out_dir, param_name, t_max_hours=None):
     if t_max_hours is not None:
         title += f", truncated to {t_max_hours:g}h"
     ax.set_title(title)
+    ax.set_ylim(bottom=0)   # concentration can't go negative -- don't let
+                            # autoscale suppress 0 and exaggerate the spread
     ax.grid(alpha=0.3)
 
     # A per-line legend stops being readable past ~15 curves; fall back to a

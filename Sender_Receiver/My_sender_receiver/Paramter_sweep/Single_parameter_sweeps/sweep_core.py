@@ -150,7 +150,7 @@ DEFAULT_PARAMS = {
 
     # time stepping
     "dt": 60.0,                 # s
-    "total_time": 16 * 3600,    # s -- 16 h hard stop. Steady-state detection
+    "total_time": 24 * 3600,    # s -- 16 h hard stop. Steady-state detection
                                  # (see STEADY_STATE_* below) usually exits
                                  # earlier once I2_center_nM has flattened;
                                  # this is only the ceiling for runs that
@@ -947,6 +947,8 @@ def plot_timeseries(cfg):
     ax.set_xlabel("Time (hours)")
     ax.set_ylabel("nM")
     ax.set_title("[I2] at centre point")
+    ax.set_ylim(bottom=0)   # concentration can't go negative -- don't let
+                            # autoscale suppress 0 and exaggerate the spread
     ax.grid(alpha=0.3)
 
     sm = cm.ScalarMappable(norm=norm, cmap=cmap)
