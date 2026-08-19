@@ -142,13 +142,15 @@ def build_mesh(fine_dx, params):
     return mesh_path
 
 
-def run_simulation(mesh_path, params, fine_dx, total_time_override=None):
+def run_simulation(mesh_path, params, fine_dx, total_time_override=None, force=False):
     """
     One simulation, physics identical to sweep_core.run_single_simulation --
     imported functions, not reimplemented -- just pointed at an explicit mesh
     file and writing to this script's own output folder instead of the
     sweep's. Skips straight to returning a cached CSV if one already exists
-    for this exact resolution (and run length).
+    for this exact resolution (and run length) -- unless force=True, which
+    reruns anyway (needed to get a fresh wall_time_s measurement; a cached
+    point never really ran this time, so its timing is unknown, not zero).
     """
     suffix = "_smoke" if total_time_override is not None else ""
     ts_path = OUT_DIR / f"timeseries_fine={fine_dx:.2f}um{suffix}.csv"
@@ -156,9 +158,11 @@ def run_simulation(mesh_path, params, fine_dx, total_time_override=None):
     mesh = Gmsh2D(str(mesh_path))
     n_cells = mesh.numberOfCells
 
-    if ts_path.exists():
-        print(f"  [{fine_dx:5.2f} um] SKIP -- already have {ts_path.name}")
-        return pd.read_csv(ts_path), n_cells
+    if ts_path.exists() and not force:
+        print(f"  [{fine_dx:5.2f} um] SKIP -- already have {ts_path.name} "
+              f"(wall_time_s unknown for a skipped run; use --force-rerun to "
+              f"remeasure it)")
+        return pd.read_csv(ts_path), n_cells, np.nan
 
     dt = params["dt"]
     total_time = total_time_override if total_time_override is not None else params["total_time"]
@@ -243,7 +247,7 @@ def run_simulation(mesh_path, params, fine_dx, total_time_override=None):
           f"{len(df)} samples, {wall/60:.1f} min wall time")
 
     df.to_csv(ts_path, index=False)
-    return df, n_cells
+    return df, n_cells, wall
 
 
 def summarize_convergence(results, is_smoke=False):
@@ -277,37 +281,55 @@ def summarize_convergence(results, is_smoke=False):
     else:
         print("No tested resolution came within 1% of the finest mesh -- results are still "
               "changing at every step tested; add finer points with --fine-dx-values.")
+
+    n_unknown_wall = df["wall_time_s"].isna().sum()
+    if n_unknown_wall:
+        print(f"\n{n_unknown_wall} point(s) have no wall_time_s (they were cached/skipped "
+              f"this run, not actually simulated) -- rerun with --force-rerun to fill "
+              f"those in for the timing panel.")
     print("=" * 100)
 
     # ------------------------------------------------------------- plot
-    fig, axes = plt.subplots(3, 1, figsize=(9, 11), sharex=True)
+    # 1 row x 4 columns (not the original 3 rows x 1 column -- see
+    # replot_convergence.py, which re-plots an already-written
+    # convergence_summary.csv into this same 4-panel layout without
+    # rerunning anything): final I2, % diff from finest, cell count, and
+    # now wall time, all vs. nominal resolution.
+    fig, (ax_i2, ax_diff, ax_cells, ax_wall) = plt.subplots(1, 4, figsize=(19, 5), sharex=True)
 
-    axes[0].plot(df["fine_dx_nominal_um"], df["I2_center_final_nM"], "o-", color="C0")
-    axes[0].axvline(5.0, color="gray", linestyle=":", label="current default (5.0 um)")
-    axes[0].set_ylabel("Final I2_center (nM)")
-    axes[0].set_title("Mesh convergence: final receiver-probe readout vs. nominal resolution")
-    axes[0].legend(fontsize=8)
-    axes[0].grid(alpha=0.3)
+    ax_i2.plot(df["fine_dx_nominal_um"], df["I2_center_final_nM"], "o-", color="C0")
+    ax_i2.axvline(5.0, color="gray", linestyle=":", label="current default (5.0 um)")
+    ax_i2.set_ylabel("Final I2_center (nM)")
+    ax_i2.set_title("Final receiver-probe readout")
+    ax_i2.legend(fontsize=8)
 
-    axes[1].plot(df["fine_dx_nominal_um"], df["pct_diff_from_finest"], "o-", color="C1")
-    axes[1].axhline(1.0, color="k", linestyle="--", linewidth=0.8, label="1% band")
-    axes[1].axvline(5.0, color="gray", linestyle=":")
-    axes[1].set_ylabel("% diff from finest mesh")
-    axes[1].legend(fontsize=8)
-    axes[1].grid(alpha=0.3)
+    ax_diff.plot(df["fine_dx_nominal_um"], df["pct_diff_from_finest"], "o-", color="C1")
+    ax_diff.axhline(1.0, color="k", linestyle="--", linewidth=0.8, label="1% band")
+    ax_diff.axvline(5.0, color="gray", linestyle=":")
+    ax_diff.set_ylabel("% diff from finest mesh")
+    ax_diff.set_title("Convergence vs. finest mesh tested")
+    ax_diff.legend(fontsize=8)
 
-    axes[2].plot(df["fine_dx_nominal_um"], df["n_cells"], "o-", color="C2")
-    axes[2].axvline(5.0, color="gray", linestyle=":")
-    axes[2].set_xlabel("nominal min_cell_size (um)   [finer ->]")
-    axes[2].set_ylabel("mesh cell count")
-    axes[2].grid(alpha=0.3)
+    ax_cells.plot(df["fine_dx_nominal_um"], df["n_cells"], "o-", color="C2")
+    ax_cells.axvline(5.0, color="gray", linestyle=":")
+    ax_cells.set_ylabel("mesh cell count")
+    ax_cells.set_title("Mesh size")
 
-    for ax in axes:
-        ax.invert_xaxis()
+    ax_wall.plot(df["fine_dx_nominal_um"], df["wall_time_s"] / 60.0, "o-", color="C3")
+    ax_wall.axvline(5.0, color="gray", linestyle=":")
+    ax_wall.set_ylabel("wall time (min)")
+    ax_wall.set_title("Simulation wall time")
 
-    plt.tight_layout()
+    for ax in (ax_i2, ax_diff, ax_cells, ax_wall):
+        ax.set_xlabel("nominal min_cell_size (um)   [finer ->]")
+        ax.grid(alpha=0.3)
+    ax_i2.invert_xaxis()   # shared x -- inverting one inverts all four
+
+    fig.suptitle("Mesh convergence: nominal resolution sweep", fontsize=15, fontweight="bold")
+    fig.tight_layout()
+
     plot_path = OUT_DIR / f"convergence_plot{suffix}.png"
-    plt.savefig(plot_path, dpi=150)
+    fig.savefig(plot_path, dpi=150, bbox_inches="tight")
     print(f"\nSummary CSV: {csv_path}")
     print(f"Plot: {plot_path}")
 
@@ -328,6 +350,12 @@ def main():
     parser.add_argument(
         "--distance-between", type=float, default=None,
         help="override DEFAULT_PARAMS distance_between (default: sweep_core's default, 200 um)")
+    parser.add_argument(
+        "--force-rerun", action="store_true",
+        help="ignore cached timeseries CSVs and rerun every sweep point's simulation "
+             "fresh (mesh files are still reused). Needed to (re)measure wall_time_s "
+             "for the timing panel -- a cached point's timing is otherwise unknown, "
+             "since it didn't actually run this time.")
     args = parser.parse_args()
 
     if args.fine_dx_values:
@@ -352,7 +380,8 @@ def main():
         try:
             mesh_path = build_mesh(fine_dx, params)
             min_edge, mean_edge = measure_mesh_edges(mesh_path)
-            df, n_cells = run_simulation(mesh_path, params, fine_dx, total_time_override)
+            df, n_cells, wall_time_s = run_simulation(
+                mesh_path, params, fine_dx, total_time_override, force=args.force_rerun)
         except Exception as exc:
             print(f"  [{fine_dx:5.2f} um] FAILED: {type(exc).__name__}: {exc}")
             continue
@@ -369,6 +398,7 @@ def main():
             "S2_total_center_final_nM": final["S2_total_center_nM"],
             "half_time_center_hr": sc.half_time(
                 df["time_hours"].values, df["I2_center_nM"].values),
+            "wall_time_s": wall_time_s,
         })
 
     if len(results) < 2:
