@@ -150,7 +150,7 @@ DEFAULT_PARAMS = {
 
     # time stepping
     "dt": 60.0,                 # s
-    "total_time": 24 * 3600,    # s -- 16 h hard stop. Steady-state detection
+    "total_time": 48 * 3600,    # s -- 16 h hard stop. Steady-state detection
                                  # (see STEADY_STATE_* below) usually exits
                                  # earlier once I2_center_nM has flattened;
                                  # this is only the ceiling for runs that

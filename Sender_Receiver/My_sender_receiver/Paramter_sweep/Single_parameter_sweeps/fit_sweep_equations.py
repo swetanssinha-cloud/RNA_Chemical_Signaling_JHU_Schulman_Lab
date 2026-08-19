@@ -355,7 +355,7 @@ def equation_string(fit, param_name):
 # =============================================================================
 
 def run_dataset(dirs, metric, out_dir=None, make_timeseries_plot=False,
-                 timeseries_t_max_hours=None):
+                 timeseries_t_max_hours=None, make_summary_plot=False):
     """
     dirs: list of one or more result folders, pooled into a single dataset.
     out_dir: where to write the fit report/plot. Defaults to dirs[0] when
@@ -429,6 +429,9 @@ def run_dataset(dirs, metric, out_dir=None, make_timeseries_plot=False,
     if make_timeseries_plot:
         plot_combined_timeseries(raw, out_dir, param_name,
                                   t_max_hours=timeseries_t_max_hours)
+
+    if make_summary_plot:
+        plot_i2_halftime_summary(raw, out_dir, param_name)
 
     return dict(folder=label, out_dir=str(out_dir), param_name=param_name,
                 metric=metric, model=best["model"], r2=best["r2"],
@@ -529,10 +532,7 @@ def plot_combined_timeseries(raw, out_dir, param_name, t_max_hours=None):
 
     ax.set_xlabel("Time (hours)")
     ax.set_ylabel("[I2] at centre point (nM)")
-    title = f"[I2] vs time -- {param_name} = {values.min():g} to {values.max():g} ({len(values)} runs)"
-    if t_max_hours is not None:
-        title += f", truncated to {t_max_hours:g}h"
-    ax.set_title(title)
+    ax.set_title("[I2] at centre point")
     ax.set_ylim(bottom=0)   # concentration can't go negative -- don't let
                             # autoscale suppress 0 and exaggerate the spread
     ax.grid(alpha=0.3)
@@ -551,6 +551,44 @@ def plot_combined_timeseries(raw, out_dir, param_name, t_max_hours=None):
 
     fig.tight_layout()
     out = out_dir / f"timeseries_{param_name}_combined.png"
+    fig.savefig(out, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  wrote {out}")
+
+
+def plot_i2_halftime_summary(raw, out_dir, param_name):
+    """
+    Slide-ready 2-row x 1-column metadata plot: half-time (top) and final
+    [I2] (bottom) vs the swept parameter -- the same reduced pair of metrics
+    as summary_I2_halftime_for_prez.png in the "*_for_prez" folders (see
+    plot_summary_for_prez.py in this same directory), but built from `raw`
+    (the deduped, merged-folder table discover_runs() already produced) so
+    values that came from more than one merged sub-range are only plotted
+    once, consistent with the equation fit and the combined timeseries plot.
+    """
+    agg = (raw.groupby("param_value", as_index=False)
+              [["I2_center_final_nM", "half_time_center_hr"]]
+              .mean()
+              .sort_values("param_value"))
+    xs = agg["param_value"].to_numpy(dtype=float)
+
+    fig, (ax_half, ax_i2) = plt.subplots(2, 1, figsize=(7, 9))
+    fig.suptitle(f"Parameter sweep: {param_name}", fontsize=15, fontweight="bold")
+
+    ax_half.plot(xs, agg["half_time_center_hr"], "o-", color="tab:green", lw=2)
+    ax_half.set_title("Turn-on time")
+    ax_half.set_ylabel("Half-time of I2 (hours)")
+
+    ax_i2.plot(xs, agg["I2_center_final_nM"], "o-", color="tab:blue", lw=2)
+    ax_i2.set_title("Receiver switch")
+    ax_i2.set_ylabel("Final [I2] at receiver (nM)")
+
+    for ax in (ax_half, ax_i2):
+        ax.set_xlabel(param_name)
+        ax.grid(alpha=0.3)
+
+    fig.tight_layout()
+    out = out_dir / f"summary_I2_halftime_{param_name}.png"
     fig.savefig(out, dpi=200, bbox_inches="tight")
     plt.close(fig)
     print(f"  wrote {out}")
@@ -583,6 +621,10 @@ def main():
                               "many simulated hours. Useful when merged folders ran "
                               "for different total_time (e.g. 8h vs 16h) and you want "
                               "every line to stop at the same x position.")
+    parser.add_argument("--summary", action="store_true",
+                         help="Also write a slide-ready 2-row x 1-column metadata plot "
+                              "(half-time on top, final [I2] on bottom) vs the swept "
+                              "parameter, as summary_I2_halftime_<param>.png.")
     args = parser.parse_args()
 
     if args.results_dirs:
@@ -591,7 +633,8 @@ def main():
         summary = []
         result = run_dataset(input_dirs, args.metric, out_dir=out_dir,
                               make_timeseries_plot=args.timeseries,
-                              timeseries_t_max_hours=args.truncate_hours)
+                              timeseries_t_max_hours=args.truncate_hours,
+                              make_summary_plot=args.summary)
         if result:
             summary.append(result)
         return
@@ -607,7 +650,8 @@ def main():
     summary = []
     for d in dirs:
         result = run_dataset([d], args.metric, make_timeseries_plot=args.timeseries,
-                              timeseries_t_max_hours=args.truncate_hours)
+                              timeseries_t_max_hours=args.truncate_hours,
+                              make_summary_plot=args.summary)
         if result:
             summary.append(result)
 
