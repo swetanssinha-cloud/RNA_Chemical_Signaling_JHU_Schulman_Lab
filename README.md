@@ -32,4 +32,7 @@ The folders include:
 
       f. Convergence_Studies: This contains the convergence studies I tried running. The Convergence_Study_Claudes_Triangular_mesh_FIXEDV4.py is the most recent attempt at running a convergence study, but it is not completed yet. 
 
+I had used Claude Code for debugging, drawings + figures and mesh generation. 
+
+
 Thank you to everyone who helped me throughout this project. Thank you to Professor Schulman who gave me a space in the office and helped me conduct this research. A big thank you to Dr. Lindeman who met with me almost everyday to answer any questions I had. Additionally, thank you to the office and staff at JHU ChemBE department for helping me in this summer experince. 
