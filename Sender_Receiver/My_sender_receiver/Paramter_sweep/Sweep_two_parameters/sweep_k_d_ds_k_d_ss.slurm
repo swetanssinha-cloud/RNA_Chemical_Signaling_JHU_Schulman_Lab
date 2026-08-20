@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=45                 # 30 x 30 = 900 grid points -> 45 workers, 20 batches
 #SBATCH --mem=180G
-#SBATCH --time=02:00:00                   # neither parameter is geometric -> 1 shared mesh; resume/skip picks up if this times out
+#SBATCH --time=04:00:00                   # neither parameter is geometric -> 1 shared mesh; resume/skip picks up if this times out
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 
