@@ -14,9 +14,9 @@ from Sweep_two_core import TwoParamSweepConfig, run
 
 cfg = TwoParamSweepConfig(
     parameter_one="k_d_ds",
-    values_one=np.linspace(0, 1, 10) * 3e-4,
+    values_one=np.linspace(0, 1, 30) * 3e-4,
     parameter_two="k_d_ss",
-    values_two=np.linspace(0, 1, 10) * 3e-4
+    values_two=np.linspace(0, 1, 30) * 3e-4
 )
 
 if __name__ == "__main__":

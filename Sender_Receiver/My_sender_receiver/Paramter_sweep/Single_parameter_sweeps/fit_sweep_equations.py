@@ -350,6 +350,44 @@ def equation_string(fit, param_name):
     return model["fmt"](fit["params"], param_name)
 
 
+def fit_and_report(x, y, param_name, metric, out_dir):
+    """
+    Fit every candidate model to (x, y), rank by AICc, print the ranking,
+    and write equation_fit_<metric>.{json,png} into out_dir. Shared by every
+    entry point (timeseries-derived datasets and precomputed metadata CSVs
+    alike) so there is exactly one place that does the actual fitting.
+    """
+    results = []
+    for model in MODELS:
+        if model["positive_x"] and not np.all(x > 0):
+            continue
+        fit = fit_model(model, x, y)
+        if fit is not None:
+            results.append(fit)
+
+    if not results:
+        print("  no candidate model converged.")
+        return None
+
+    results.sort(key=lambda r: (r["aicc"], -r["r2"]))
+    best = results[0]
+
+    print(f"  best fit: {best['model']}  (R^2={best['r2']:.4f}, "
+          f"AICc={best['aicc']:.2f})")
+    print(f"    {metric} = {equation_string(best, param_name)}")
+    print("  all candidates, ranked by AICc:")
+    for r in results:
+        print(f"    {r['model']:<17} R^2={r['r2']:.4f}  AICc={r['aicc']:8.2f}  "
+              f"{equation_string(r, param_name)}")
+
+    save_report(out_dir, param_name, metric, x, y, results, best)
+    plot_fit(out_dir, param_name, metric, x, y, results, best)
+
+    return dict(out_dir=str(out_dir), param_name=param_name, metric=metric,
+                model=best["model"], r2=best["r2"],
+                equation=equation_string(best, param_name))
+
+
 # =============================================================================
 # Pipeline -- runs on one folder, or a merged set of folders
 # =============================================================================
@@ -400,31 +438,10 @@ def run_dataset(dirs, metric, out_dir=None, make_timeseries_plot=False,
               "a trustworthy equation. Skipping.")
         return None
 
-    results = []
-    for model in MODELS:
-        if model["positive_x"] and not np.all(x > 0):
-            continue
-        fit = fit_model(model, x, y)
-        if fit is not None:
-            results.append(fit)
-
-    if not results:
-        print("  no candidate model converged.")
+    result = fit_and_report(x, y, param_name, metric, out_dir)
+    if result is None:
         return None
-
-    results.sort(key=lambda r: (r["aicc"], -r["r2"]))
-    best = results[0]
-
-    print(f"  best fit: {best['model']}  (R^2={best['r2']:.4f}, "
-          f"AICc={best['aicc']:.2f})")
-    print(f"    {metric} = {equation_string(best, param_name)}")
-    print("  all candidates, ranked by AICc:")
-    for r in results:
-        print(f"    {r['model']:<17} R^2={r['r2']:.4f}  AICc={r['aicc']:8.2f}  "
-              f"{equation_string(r, param_name)}")
-
-    save_report(out_dir, param_name, metric, x, y, results, best)
-    plot_fit(out_dir, param_name, metric, x, y, results, best)
+    result["folder"] = label
 
     if make_timeseries_plot:
         plot_combined_timeseries(raw, out_dir, param_name,
@@ -433,9 +450,75 @@ def run_dataset(dirs, metric, out_dir=None, make_timeseries_plot=False,
     if make_summary_plot:
         plot_i2_halftime_summary(raw, out_dir, param_name)
 
-    return dict(folder=label, out_dir=str(out_dir), param_name=param_name,
-                metric=metric, model=best["model"], r2=best["r2"],
-                equation=equation_string(best, param_name))
+    return result
+
+
+# =============================================================================
+# Pipeline -- fits directly from a precomputed off_on_metadata_<param>.csv
+# (written by plot_off_on_metadata.py in sweep_one_parameter_turn_on_off/),
+# instead of deriving a metric from timeseries CSVs. That file already
+# reduces each on/off run to t_half_off_hr and t_95_off_hr (durations
+# measured from shutoff, not from t=0), so this only needs to read it and
+# hand its columns to the same fit_and_report() everything else uses.
+# =============================================================================
+
+def load_off_on_metadata(source):
+    """source may be a folder (its one off_on_metadata_*.csv is used) or a
+    CSV path directly. Returns (param_name, dataframe)."""
+    source = Path(source)
+    if source.is_dir():
+        matches = sorted(source.glob("off_on_metadata_*.csv"))
+        if not matches:
+            raise FileNotFoundError(f"No off_on_metadata_*.csv found in {source}")
+        if len(matches) > 1:
+            raise FileNotFoundError(
+                f"Multiple off_on_metadata_*.csv in {source}: "
+                f"{[m.name for m in matches]} -- pass the file directly.")
+        source = matches[0]
+
+    m = re.match(r"off_on_metadata_(?P<param>.+)\.csv$", source.name)
+    param_name = m.group("param") if m else None
+    return param_name, pd.read_csv(source)
+
+
+def run_metadata_fit(source, metric, out_dir=None):
+    source = Path(source)
+    print(f"\n=== {source.name} (off/on metadata) ===")
+    param_name, table = load_off_on_metadata(source)
+    if param_name is None:
+        print(f"  could not infer the swept parameter from '{source.name}' "
+              f"(expected off_on_metadata_<param>.csv); skipping.")
+        return None
+    if metric not in table.columns:
+        print(f"  '{metric}' is not a column in this file "
+              f"(have: {list(table.columns)}); skipping.")
+        return None
+
+    if out_dir is None:
+        out_dir = source if source.is_dir() else source.parent
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    sub = table.dropna(subset=[metric]).sort_values("param_value")
+    x = sub["param_value"].to_numpy(dtype=float)
+    y = sub[metric].to_numpy(dtype=float)
+
+    n_dropped = len(table) - len(sub)
+    dropped_note = (f"  ({n_dropped} of {len(table)} dropped as NaN -- never "
+                     f"got there within the simulated window)" if n_dropped else "")
+    print(f"  parameter: {param_name}   distinct values: {len(x)}{dropped_note}")
+    print(f"  metric   : {metric}")
+    print(f"  output   : {out_dir}")
+
+    if len(x) < 4:
+        print("  fewer than 4 distinct parameter values -- too few to fit "
+              "a trustworthy equation. Skipping.")
+        return None
+
+    result = fit_and_report(x, y, param_name, metric, out_dir)
+    if result is not None:
+        result["folder"] = source.name
+    return result
 
 
 def save_report(results_dir, param_name, metric, x, y, results, best):
@@ -606,9 +689,20 @@ def main():
                               "files. Zero: fit every subfolder of this script's "
                               "directory independently. One: fit just that folder. "
                               "Two or more: merge them into one dataset and fit that.")
-    parser.add_argument("--metric", choices=METRICS, default="half_time_center_hr",
-                         help="Which summary metric to fit vs the swept parameter "
-                              "(default: half_time_center_hr).")
+    parser.add_argument("--metric", default="half_time_center_hr",
+                         help="Which metric to fit vs the swept parameter. Without "
+                              f"--metadata: one of {METRICS}. With --metadata: any "
+                              "column in the off_on_metadata_<param>.csv, e.g. "
+                              "t_half_off_hr (recovery to midpoint) or t_95_off_hr "
+                              "(recovery to 95 nM).")
+    parser.add_argument("--metadata", action="store_true",
+                         help="Fit directly from a precomputed "
+                              "off_on_metadata_<param>.csv (written by "
+                              "plot_off_on_metadata.py in "
+                              "sweep_one_parameter_turn_on_off/) instead of scanning "
+                              "timeseries CSVs. Each positional argument (a folder or "
+                              "the CSV itself) is fit independently -- no merging in "
+                              "this mode.")
     parser.add_argument("--out-dir", default=None,
                          help="Where to write the merged fit's report/plot. Only "
                               "meaningful with 2+ input folders; defaults to a new "
@@ -626,6 +720,21 @@ def main():
                               "(half-time on top, final [I2] on bottom) vs the swept "
                               "parameter, as summary_I2_halftime_<param>.png.")
     args = parser.parse_args()
+
+    if not args.metadata and args.metric not in METRICS:
+        parser.error(f"--metric must be one of {METRICS} (or pass --metadata "
+                      "to fit a column from an off_on_metadata_*.csv).")
+
+    if args.metadata:
+        if not args.results_dirs:
+            parser.error("--metadata requires at least one folder or CSV path.")
+        out_dir = Path(args.out_dir).resolve() if args.out_dir else None
+        summary = []
+        for d in args.results_dirs:
+            result = run_metadata_fit(Path(d).resolve(), args.metric, out_dir=out_dir)
+            if result:
+                summary.append(result)
+        return
 
     if args.results_dirs:
         input_dirs = [Path(d).resolve() for d in args.results_dirs]
