@@ -91,7 +91,7 @@ cells_per_level = 3
 coarse_dx = 100
 
 dt = 60.0
-total_time = 8 * 3600
+total_time = 8 * 3600 #run at 8 always
 n_steps = int(total_time / dt)
 
 save_interval_time = 60.0
