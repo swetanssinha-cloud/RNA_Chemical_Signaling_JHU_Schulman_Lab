@@ -237,6 +237,10 @@ def apply_sweep_value(cfg, param_value):
     """Build the parameter dict for one sweep point."""
     params = dict(DEFAULT_PARAMS)
     params[cfg.sweep_parameter] = param_value
+    # I1O2 (sender template) and I2 (receiver switch) must start at the same
+    # concentration -- keep I2_init locked to whatever I1O2_init ends up
+    # being, whether or not I1O2_init is the parameter being swept.
+    params["I2_init"] = params["I1O2_init"]
     return params
 
 
