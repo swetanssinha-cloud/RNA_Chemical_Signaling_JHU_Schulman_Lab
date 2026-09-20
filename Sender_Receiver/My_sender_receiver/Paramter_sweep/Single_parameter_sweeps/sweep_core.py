@@ -233,6 +233,9 @@ class SweepConfig:
 # MODEL
 # =============================================================================
 
+THRESHOLD_MULTIPLIER = 4.0  # Th2_init = THRESHOLD_MULTIPLIER * I2_init
+
+
 def apply_sweep_value(cfg, param_value):
     """Build the parameter dict for one sweep point."""
     params = dict(DEFAULT_PARAMS)
@@ -241,6 +244,11 @@ def apply_sweep_value(cfg, param_value):
     # concentration -- keep I2_init locked to whatever I1O2_init ends up
     # being, whether or not I1O2_init is the parameter being swept.
     params["I2_init"] = params["I1O2_init"]
+    # Threshold starts at a fixed multiple of the receiver concentration --
+    # except when Th2_init is itself the swept parameter, in which case the
+    # swept value must survive instead of being overwritten here.
+    if cfg.sweep_parameter != "Th2_init":
+        params["Th2_init"] = THRESHOLD_MULTIPLIER * params["I2_init"]
     return params
 
 
