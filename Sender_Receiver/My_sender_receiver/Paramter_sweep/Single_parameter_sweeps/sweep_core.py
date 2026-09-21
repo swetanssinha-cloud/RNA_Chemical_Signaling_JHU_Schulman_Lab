@@ -236,20 +236,35 @@ class SweepConfig:
 THRESHOLD_MULTIPLIER = 4.0  # Th2_init = THRESHOLD_MULTIPLIER * I2_init
 
 
-def apply_sweep_value(cfg, param_value):
-    """Build the parameter dict for one sweep point."""
+def build_params(overrides):
+    """
+    Build a full parameter dict from DEFAULT_PARAMS plus explicit overrides,
+    enforcing the two physics invariants everywhere -- single-parameter
+    sweeps (via apply_sweep_value below) AND multi-parameter sweeps (e.g.
+    double_sweep_core.py) alike, so there is exactly one place these rules
+    live and they cannot drift out of sync between sweep drivers:
+
+      * I2_init (receiver switch) always starts equal to I1O2_init (sender
+        template) -- unless I2_init is itself one of the overrides, in which
+        case that explicit value wins.
+      * Th2_init (threshold) always starts at THRESHOLD_MULTIPLIER * I2_init
+        -- unless Th2_init is itself one of the overrides.
+
+    `overrides` may set any number of keys at once (one for a single-
+    parameter sweep, two for a double sweep).
+    """
     params = dict(DEFAULT_PARAMS)
-    params[cfg.sweep_parameter] = param_value
-    # I1O2 (sender template) and I2 (receiver switch) must start at the same
-    # concentration -- keep I2_init locked to whatever I1O2_init ends up
-    # being, whether or not I1O2_init is the parameter being swept.
-    params["I2_init"] = params["I1O2_init"]
-    # Threshold starts at a fixed multiple of the receiver concentration --
-    # except when Th2_init is itself the swept parameter, in which case the
-    # swept value must survive instead of being overwritten here.
-    if cfg.sweep_parameter != "Th2_init":
+    params.update(overrides)
+    if "I2_init" not in overrides:
+        params["I2_init"] = params["I1O2_init"]
+    if "Th2_init" not in overrides:
         params["Th2_init"] = THRESHOLD_MULTIPLIER * params["I2_init"]
     return params
+
+
+def apply_sweep_value(cfg, param_value):
+    """Build the parameter dict for one single-parameter sweep point."""
+    return build_params({cfg.sweep_parameter: param_value})
 
 
 def timeseries_path_for(cfg, param_value, replicate_id, params):

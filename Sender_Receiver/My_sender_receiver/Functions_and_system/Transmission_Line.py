@@ -28,12 +28,8 @@ is therefore numerically identical to the original model's I1O2: a fixed,
 non-evolving source. This file implements it exactly that way (see
 "DECISIONS" below) rather than paying for four inert ODEs per run.
 
-DECISIONS (confirmed with the user before writing this file)
+DECISIONS
 --------------------------------------------------------------
-1. TG Design 3 (Supp. Fig. 12/15): Threshold is LOCALIZED at each node, not
-   diffusive -- this is already how TG_Rmesh_fast.py treats Th2, so every
-   node just repeats that. (Design 2's freely-diffusive Threshold and
-   Design 1's ring closure / no-threshold variant are NOT implemented here.)
 2. Node 1 is a fixed constant source (I1 held at its initial value forever,
    no S1/Th1/complexes solved) -- matches how the sender is already handled
    in the existing 2-node model, and is mathematically what the paper's
@@ -112,15 +108,8 @@ I_init_list = [I_init] * N_NODES
 # Th_init_list[i] is unused for i == 0 since node 1 has no Threshold species
 # (see DECISIONS #2 above) -- it's kept in the list only so the indexing
 # lines up 1:1 with the paper's node numbering.
-_PAPER_TH_INIT_5NODE = [5.0, 5.0, 10.0, 5.0, 5.0]   # uM
-if N_NODES == 5:
-    Th_init_list = _PAPER_TH_INIT_5NODE
-else:
-    Th_init_list = [5.0] * N_NODES
-    print(f"N_NODES={N_NODES} != 5, so the paper's per-node Threshold values "
-          f"(only specified for its 5-node example) don't apply -- using a "
-          f"uniform 5.0 uM Threshold at every node instead. Edit "
-          f"Th_init_list above if you want different per-node values.")
+    
+Th_init_list = [I_init_list[k] * 4.0 for k in range(N_NODES)]
 
 # --- domain sizing (auto-scales with N_NODES so the bath margin around the
 #     whole chain stays generous no matter how many nodes are in the line) --
@@ -631,6 +620,36 @@ for i in range(N_NODES):
 plt.tight_layout()
 plot_filename = f'TransmissionLine_N{N_NODES}_ccd={distance_between:.0f}.png'
 plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
+
+# =============================================================================
+# TEMPLATE / RECEIVER CONCENTRATION -- ALL NODES OVERLAID ON ONE AXIS
+# =============================================================================
+# I[k] already plays both roles at once: it's node k's own receiver readout
+# (consumed by k_slow*I[k]*S[k] inside eq_S[k]) AND, completely unchanged,
+# the exact same CellVariable referenced again as the production source
+# k_p*I[k-1] when building node (k+1)'s equation a few sections up. There
+# was never a separate "template" variable to plot -- this just overlays
+# that one shared quantity for every node so the whole chain's cascade is
+# visible on a single time axis, instead of split across separate rows.
+
+fig_overlay, ax_overlay = plt.subplots(figsize=(10, 6))
+colors = plt.cm.viridis(np.linspace(0, 1, N_NODES))
+
+for i in range(N_NODES):
+    ax_overlay.plot(time_points, node_data[i]['I_nM'], color=colors[i],
+                     linewidth=2, label=f'Node {i + 1}: [I_{i + 1}]')
+
+ax_overlay.set_xlabel('Time (hours)')
+ax_overlay.set_ylabel('Template / Receiver Concentration [I] (nM)')
+ax_overlay.set_title(f'{N_NODES}-Node Transmission Line: [I] at Every Node',
+                      fontweight='bold')
+ax_overlay.legend()
+ax_overlay.grid(True, alpha=0.3)
+ax_overlay.set_ylim(bottom=0)
+
+plt.tight_layout()
+overlay_filename = f'TransmissionLine_N{N_NODES}_overlay_I.png'
+plt.savefig(overlay_filename, dpi=300, bbox_inches='tight')
 
 # =============================================================================
 # FINAL-TIMESTEP SPATIAL HEAT MAP -- ALL NODES AT ONCE

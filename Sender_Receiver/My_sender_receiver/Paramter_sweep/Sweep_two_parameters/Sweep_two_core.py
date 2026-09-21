@@ -84,6 +84,7 @@ from sweep_core import (
     STEADY_STATE_WINDOW,
     SWEEP_PLATEAU_TOL,
     SWEEP_RESIDUAL_TARGET,
+    build_params,
     build_S2_equation,
     half_time,
     initialize_fields,
@@ -172,11 +173,15 @@ def filename_re_for(cfg):
 
 
 def params_for(cfg, value_one, value_two):
-    """The full parameter dict for one grid point."""
-    params = dict(DEFAULT_PARAMS)
-    params[cfg.parameter_one] = value_one
-    params[cfg.parameter_two] = value_two
-    return params
+    """
+    The full parameter dict for one grid point. Delegates to sweep_core's
+    build_params(), which enforces I2_init = I1O2_init and
+    Th2_init = THRESHOLD_MULTIPLIER * I2_init for any combination of
+    overrides -- so a two-parameter sweep gets exactly the same physics
+    invariant a single-parameter sweep does, with no extra code needed at
+    each call site.
+    """
+    return build_params({cfg.parameter_one: value_one, cfg.parameter_two: value_two})
 
 
 # =============================================================================
