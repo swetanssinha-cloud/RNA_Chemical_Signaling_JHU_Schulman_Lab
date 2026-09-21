@@ -65,6 +65,7 @@ every node shares mesh nodes with its neighbors bath. Domain width
 auto-scales with N so adding nodes doesn't crowd the bath margins.
 """
 
+import json
 import numpy as np
 import matplotlib.pyplot as plt
 from fipy import CellVariable, TransientTerm, DiffusionTerm, ImplicitSourceTerm, Gmsh2D, LinearLUSolver
@@ -129,11 +130,20 @@ n_steps = int(total_time / dt)
 
 save_interval_time = 60.0
 save_interval_steps = int(save_interval_time / dt)
-check_steady_state = True
-ss_tolerance = 1e-8
-ss_window = 50
 verbose = True
-check_interval = 100
+
+# Steady-state detection, ported from Paramter_sweep/Single_parameter_sweeps/
+# sweep_core.py: std/mean of a trailing window of saved samples on the LAST
+# node's readout (I_N), rather than a step-to-step relative-change threshold
+# aggregated over every species at every node. Checking only the last node
+# is sufficient for the whole chain: node k's equation only ever depends on
+# node (k-1), never anything downstream, so the tail of the chain cannot
+# look steady unless every upstream node feeding into it has already been
+# steady for the same trailing window.
+check_steady_state = True
+STEADY_STATE_WINDOW = 60        # trailing saved samples used for mean/std
+STEADY_STATE_THRESHOLD = 1e-10  # std/mean of the trailing window
+CHECK_INTERVAL = 1              # check every CHECK_INTERVAL saved samples
 
 max_sweeps = 15
 sweep_residual_target = 1e-8
@@ -443,7 +453,7 @@ time_points = []
 # its S_free/S_total entries stay NaN throughout (see DECISIONS #2).
 node_data = {i: {'I_nM': [], 'S_free_nM': [], 'S_total_nM': []} for i in range(N_NODES)}
 
-recent_changes = []
+recent_I_last_values = []
 current_time = 0.0
 step = 0
 converged_to_ss = False
@@ -521,31 +531,27 @@ for step in range(n_steps):
                 node_data[i]['S_free_nM'].append(S_free_val * 1000)
                 node_data[i]['S_total_nM'].append(S_total_val * 1000)
 
-        if check_steady_state and step % check_interval == 0:
-            epsilon = 1e-10
-            changes = []
-            for k in range(1, N_NODES):
-                changes.append(np.max(np.abs(S[k].value - old_vals[k]['S']) / (np.abs(S[k].value) + epsilon)))
-                changes.append(np.max(np.abs(I[k].value - old_vals[k]['I']) / (np.abs(I[k].value) + epsilon)))
-                changes.append(np.max(np.abs(Th[k].value - old_vals[k]['Th']) / (np.abs(Th[k].value) + epsilon)))
-                changes.append(np.max(np.abs(SI[k].value - old_vals[k]['SI']) / (np.abs(SI[k].value) + epsilon)))
-                changes.append(np.max(np.abs(STh[k].value - old_vals[k]['STh']) / (np.abs(STh[k].value) + epsilon)))
+        if check_steady_state:
+            recent_I_last_values.append(node_data[N_NODES - 1]['I_nM'][-1])
 
-            max_change = np.max(changes)
-            recent_changes.append(max_change)
+            if (step % (save_interval_steps * CHECK_INTERVAL) == 0
+                    and len(recent_I_last_values) > STEADY_STATE_WINDOW):
+                recent_window = recent_I_last_values[-STEADY_STATE_WINDOW:]
+                mean_I_last = np.mean(recent_window)
 
-            if len(recent_changes) > ss_window:
-                recent_changes.pop(0)
+                if mean_I_last > 0:
+                    relative_change = np.std(recent_window) / mean_I_last
 
-            if len(recent_changes) >= ss_window:
-                if all(c < ss_tolerance for c in recent_changes):
-                    converged_to_ss = True
-                    if verbose:
-                        print(f"\n{'=' * 70}")
-                        print(f"STEADY STATE REACHED at t = {current_time / 3600:.3f} hours")
-                        print(f"Maximum relative change: {max_change:.2e} < {ss_tolerance:.2e}")
-                        print(f"{'=' * 70}\n")
-                    break
+                    if relative_change < STEADY_STATE_THRESHOLD:
+                        converged_to_ss = True
+                        if verbose:
+                            print(f"\n{'=' * 70}")
+                            print(f"STEADY STATE REACHED at t = {current_time / 3600:.3f} hours")
+                            print(f"[I_{N_NODES}] std/mean over trailing "
+                                  f"{STEADY_STATE_WINDOW} samples: "
+                                  f"{relative_change:.2e} < {STEADY_STATE_THRESHOLD:.2e}")
+                            print(f"{'=' * 70}\n")
+                        break
 
         if step % (save_interval_steps * 10) == 0:
             last = N_NODES - 1
@@ -576,6 +582,19 @@ for i in range(N_NODES):
 df = pd.DataFrame(csv_data)
 csv_filename = f'TransmissionLine_N{N_NODES}_ccd={distance_between:.0f}.csv'
 df.to_csv(csv_filename, index=False)
+
+# Metadata that isn't recoverable from the CSV alone -- same sidecar pattern
+# as Paramter_sweep/Single_parameter_sweeps/sweep_core.py's .meta.json.
+# Lets a standalone script reading this CSV later (e.g. a final-concentration
+# plot) know whether "final" means "converged" or just "ran out of time".
+meta_filename = csv_filename.rsplit('.csv', 1)[0] + '.meta.json'
+with open(meta_filename, 'w') as f:
+    json.dump({
+        'N_NODES': N_NODES,
+        'converged_to_ss': bool(converged_to_ss),
+        'final_time_hr': current_time / 3600,
+        'total_time_hr': total_time / 3600,
+    }, f, indent=2)
 
 # =============================================================================
 # PLOTTING -- ONE ROW PER NODE
