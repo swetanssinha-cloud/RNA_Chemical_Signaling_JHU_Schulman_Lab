@@ -27,31 +27,37 @@ plot is meant to help answer (see the header of Transmission_Line.py and the
 eventual parameter sweep over chain length / rate constants).
 """
 
-import glob
 import json
 import re
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
 
 # --- which run to plot -------------------------------------------------------
-# Point this at a specific CSV if you want a particular run; leave as None to
-# auto-pick the most recently modified TransmissionLine_N*_ccd=*.csv in this
-# folder (i.e. whatever Transmission_Line.py produced most recently).
-CSV_FILENAME = None
+# Usage:
+#   python plot_final_receiver_concentrations.py path/to/TransmissionLine_N5_ccd=300.csv
+#   python plot_final_receiver_concentrations.py path/to/some_folder      (newest matching CSV in it)
+#   python plot_final_receiver_concentrations.py                          (newest matching CSV in the cwd)
+# The PNG is written next to the CSV it was made from, so each dataset's
+# figure stays with its own data.
+target = Path(sys.argv[1]) if len(sys.argv) > 1 else Path('.')
 
-if CSV_FILENAME is None:
-    candidates = sorted(glob.glob('TransmissionLine_N*_ccd=*.csv'),
-                         key=lambda p: Path(p).stat().st_mtime, reverse=True)
+if target.is_dir():
+    candidates = sorted(target.glob('TransmissionLine_N*_ccd=*.csv'),
+                         key=lambda p: p.stat().st_mtime, reverse=True)
     if not candidates:
         raise FileNotFoundError(
-            "No TransmissionLine_N*_ccd=*.csv found in this folder. Run "
-            "Transmission_Line.py first, or set CSV_FILENAME explicitly.")
-    CSV_FILENAME = candidates[0]
+            f"No TransmissionLine_N*_ccd=*.csv found in {target.resolve()}. "
+            f"Pass the CSV path (or a folder containing one) as an argument.")
+    csv_path = candidates[0]
+else:
+    csv_path = target
 
-print(f"Reading {CSV_FILENAME}")
-df = pd.read_csv(CSV_FILENAME)
+CSV_FILENAME = csv_path.name
+print(f"Reading {csv_path}")
+df = pd.read_csv(csv_path)
 
 # --- geometry: distance_between is encoded in the filename (Transmission_Line.py
 # writes f'TransmissionLine_N{N_NODES}_ccd={distance_between:.0f}.csv'), not
@@ -77,18 +83,31 @@ x_um = [(k - 1) * distance_between for k in node_numbers]
 y_nM = [final_row[f'I_{k} (nM)'] for k in node_numbers]
 
 # --- steady-state status, if the .meta.json sidecar exists ------------------
-meta_filename = CSV_FILENAME.rsplit('.csv', 1)[0] + '.meta.json'
+meta_path = csv_path.with_name(csv_path.name.rsplit('.csv', 1)[0] + '.meta.json')
 meta = None
-if Path(meta_filename).exists():
-    with open(meta_filename) as f:
+if meta_path.exists():
+    with open(meta_path) as f:
         meta = json.load(f)
+
+# Independent convergence check straight from the data (same statistic the
+# simulation uses): std/mean of the last node's [I] over the trailing 60
+# samples. Reported whether or not a .meta.json exists, so older runs that
+# predate the sidecar still get an honest caption.
+tail = df[f'I_{N_NODES} (nM)'].iloc[-60:]
+drift = tail.std() / tail.mean() if tail.mean() > 0 else float('nan')
 
 if meta is not None:
     status = ("steady state reached" if meta['converged_to_ss']
               else "NOT fully converged -- ceiling reached")
     caption = f"t = {meta['final_time_hr']:.2f} hr ({status})"
 else:
-    caption = f"t = {final_row['Time (hours)']:.2f} hr (no .meta.json found -- convergence unknown)"
+    caption = (f"t = {final_row['Time (hours)']:.2f} hr "
+               f"(no .meta.json; last-node drift {drift:.1e} std/mean)")
+
+print("\nFinal [I_k] (nM):")
+for k, y in zip(node_numbers, y_nM):
+    print(f"  node {k} ({'odd' if k % 2 else 'even'}): {y:.3f}")
+print(f"Last-node [I_{N_NODES}] drift over trailing 60 samples: {drift:.2e} (std/mean)")
 
 # --- split by parity of the 1-indexed node number ---------------------------
 odd_x = [x for x, k in zip(x_um, node_numbers) if k % 2 == 1]
@@ -119,7 +138,7 @@ ax.grid(True, alpha=0.3)
 ax.set_ylim(bottom=0)
 
 plt.tight_layout()
-out_filename = f'FinalConcentration_N{N_NODES}_OddEven.png'
-plt.savefig(out_filename, dpi=300, bbox_inches='tight')
-print(f"Wrote {out_filename}")
+out_path = csv_path.with_name(f'FinalConcentration_N{N_NODES}_OddEven.png')
+plt.savefig(out_path, dpi=300, bbox_inches='tight')
+print(f"Wrote {out_path}")
 plt.show()
