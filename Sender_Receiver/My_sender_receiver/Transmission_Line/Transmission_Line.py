@@ -93,6 +93,9 @@ k_d_ss = 3e-4
 k_slow = 5e4 * 1e-6
 k_fast = 1e6 * 1e-6
 
+#CHANGE K_P to see enhanced transmission line signal propagation effect: 
+k_p = 0.2
+
 # --- transmission-line topology --------------------------------------------
 N_NODES = 5                 # change this to add/remove senders/receivers
 distance_between = 300.0    # center-to-center spacing (paper: "300 um away
@@ -580,7 +583,7 @@ for i in range(N_NODES):
     csv_data[f'S_{i + 1}_total (nM)'] = node_data[i]['S_total_nM']
 
 df = pd.DataFrame(csv_data)
-csv_filename = f'TransmissionLine_N{N_NODES}_ccd={distance_between:.0f}.csv'
+csv_filename = f'TransmissionLine_N{N_NODES}_ccd={distance_between:.0f}_k_p={k_p}.csv'
 df.to_csv(csv_filename, index=False)
 
 # Metadata that isn't recoverable from the CSV alone -- same sidecar pattern
@@ -637,7 +640,7 @@ for i in range(N_NODES):
         ax_tot.set_ylim(bottom=0)
 
 plt.tight_layout()
-plot_filename = f'TransmissionLine_N{N_NODES}_ccd={distance_between:.0f}.png'
+plot_filename = f'TransmissionLine_N{N_NODES}_ccd={distance_between:.0f}_k_p={k_p}.png'
 plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
 
 # =============================================================================
@@ -667,7 +670,7 @@ ax_overlay.grid(True, alpha=0.3)
 ax_overlay.set_ylim(bottom=0)
 
 plt.tight_layout()
-overlay_filename = f'TransmissionLine_N{N_NODES}_overlay_I.png'
+overlay_filename = f'TransmissionLine_N{N_NODES}_overlay_I_k_p={k_p}.png'
 plt.savefig(overlay_filename, dpi=300, bbox_inches='tight')
 
 # =============================================================================
@@ -744,7 +747,7 @@ for col, (field_nM, cmap, circle_color, cbar_label, title) in enumerate(fields):
             ax.set_ylim(ylim)
 
 plt.tight_layout()
-heatmap_filename = f'TransmissionLine_N{N_NODES}_heatmap_final.png'
+heatmap_filename = f'TransmissionLine_N{N_NODES}_heatmap_final_k_p={k_p}.png'
 plt.savefig(heatmap_filename, dpi=300, bbox_inches='tight')
 
 plt.show()

@@ -138,7 +138,10 @@ ax.grid(True, alpha=0.3)
 ax.set_ylim(bottom=0)
 
 plt.tight_layout()
-out_path = csv_path.with_name(f'FinalConcentration_N{N_NODES}_OddEven.png')
+#out_path = csv_path.with_name(f'FinalConcentration_N{N_NODES}_OddEven.png')
+# Same name plus _k_p=<value>, read from the CSV filename; older CSVs without k_p in the name get no suffix.
+kp_match = re.search(r'k_p=(.+)\.csv$', CSV_FILENAME)
+out_path = csv_path.with_name(f'FinalConcentration_N{N_NODES}_OddEven{"_k_p=" + kp_match.group(1) if kp_match else ""}.png')
 plt.savefig(out_path, dpi=300, bbox_inches='tight')
 print(f"Wrote {out_path}")
 plt.show()
