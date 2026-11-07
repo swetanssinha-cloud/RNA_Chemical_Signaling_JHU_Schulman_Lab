@@ -97,7 +97,7 @@ k_fast = 1e6 * 1e-6
 k_p = 0.2
 
 # --- transmission-line topology --------------------------------------------
-N_NODES = 5                 # change this to add/remove senders/receivers
+N_NODES = 10                 # change this to add/remove senders/receivers
 distance_between = 300.0    # center-to-center spacing (paper: "300 um away
                              # from each neighboring node")
 node_diameter = 75.0

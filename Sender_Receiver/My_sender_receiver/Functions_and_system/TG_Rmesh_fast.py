@@ -70,7 +70,7 @@ wall_start_time = timer.time()
 
 D_solution = 150.0
 D_gel = 60.0
-k_p = 0.01
+k_p = 0.2 # keep at 0.01 
 k_d_ds = 3e-4
 k_d_ss = 3e-4
 k_slow = 5e4 * 1e-6
@@ -83,7 +83,7 @@ Th2_init = I2_init * 4 #8 is arihant's system
 node_diameter = 75
 node_radius = node_diameter / 2
 bath_margin = 250
-distance_between = 200
+distance_between = 300 # for comparision
 total_width = 5000
 total_height = 5000
 fine_dx = 5
@@ -321,7 +321,7 @@ df = pd.DataFrame({
     'S2_free (nM)': S2_free_concentration_nM,
     'S2_total (nM)': S2_total_concentration_nM})
 
-csv_filename = f'Fast_for_Comparision_ccd={distance_between}.csv'#timeseries_ccd={distance_between:.0f}_Claudes_triangular_mesh_dx={fine_dx}_split_V1.csv
+csv_filename = f'For_Comparision_with_Transmission_Line_ccd={distance_between}.csv'#timeseries_ccd={distance_between:.0f}_Claudes_triangular_mesh_dx={fine_dx}_split_V1.csv
 df.to_csv(csv_filename, index=False)
 
 # =============================================================================
